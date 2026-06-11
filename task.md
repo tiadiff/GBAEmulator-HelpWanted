@@ -1,0 +1,4 @@
+- [x] `GBACore.Graphics.vb`: Modifica rendering per usare buffer preallocati.
+- [x] `GBACore.vb`: Inizializza i buffer preallocati in `ResetCore`.
+- [x] `Form1.vb`: Rimuovi Timer `GameLoop` e introduci thread per l'emulazione.
+- [x] `Form1.vb`: Usa un singolo `Bitmap` con `LockBits` per l'aggiornamento a schermo.
