@@ -1,4 +1,4 @@
-﻿<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
+<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()>
 Partial Class Form1
     Inherits System.Windows.Forms.Form
 
@@ -25,6 +25,7 @@ Partial Class Form1
         MenuStrip1 = New MenuStrip()
         FileToolStripMenuItem = New ToolStripMenuItem()
         LoadBIOSToolStripMenuItem = New ToolStripMenuItem()
+        UnloadBIOSToolStripMenuItem = New ToolStripMenuItem()
         LoadROMToolStripMenuItem = New ToolStripMenuItem()
         ExitToolStripMenuItem = New ToolStripMenuItem()
         ScreenBox = New PictureBox()
@@ -44,7 +45,7 @@ Partial Class Form1
         ' 
         ' FileToolStripMenuItem
         ' 
-        FileToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {LoadBIOSToolStripMenuItem, LoadROMToolStripMenuItem, ExitToolStripMenuItem})
+        FileToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {LoadBIOSToolStripMenuItem, UnloadBIOSToolStripMenuItem, LoadROMToolStripMenuItem, ExitToolStripMenuItem})
         FileToolStripMenuItem.Name = "FileToolStripMenuItem"
         FileToolStripMenuItem.Size = New Size(37, 20)
         FileToolStripMenuItem.Text = "File"
@@ -52,19 +53,25 @@ Partial Class Form1
         ' LoadBIOSToolStripMenuItem
         ' 
         LoadBIOSToolStripMenuItem.Name = "LoadBIOSToolStripMenuItem"
-        LoadBIOSToolStripMenuItem.Size = New Size(139, 22)
+        LoadBIOSToolStripMenuItem.Size = New Size(180, 22)
         LoadBIOSToolStripMenuItem.Text = "Load BIOS..."
+        ' 
+        ' UnloadBIOSToolStripMenuItem
+        ' 
+        UnloadBIOSToolStripMenuItem.Name = "UnloadBIOSToolStripMenuItem"
+        UnloadBIOSToolStripMenuItem.Size = New Size(180, 22)
+        UnloadBIOSToolStripMenuItem.Text = "Unload BIOS (HLE)"
         ' 
         ' LoadROMToolStripMenuItem
         ' 
         LoadROMToolStripMenuItem.Name = "LoadROMToolStripMenuItem"
-        LoadROMToolStripMenuItem.Size = New Size(139, 22)
+        LoadROMToolStripMenuItem.Size = New Size(180, 22)
         LoadROMToolStripMenuItem.Text = "Load ROM..."
         ' 
         ' ExitToolStripMenuItem
         ' 
         ExitToolStripMenuItem.Name = "ExitToolStripMenuItem"
-        ExitToolStripMenuItem.Size = New Size(139, 22)
+        ExitToolStripMenuItem.Size = New Size(180, 22)
         ExitToolStripMenuItem.Text = "Exit"
         ' 
         ' ScreenBox
@@ -102,6 +109,7 @@ Partial Class Form1
     Friend WithEvents MenuStrip1 As MenuStrip
     Friend WithEvents FileToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents LoadBIOSToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents UnloadBIOSToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents LoadROMToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents ExitToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents ScreenBox As PictureBox

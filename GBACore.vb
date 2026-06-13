@@ -13,6 +13,8 @@ Private FlashBank As Integer = 0
 Private WRAM(262143) As Byte
 Public IRAM(32767) As Byte
 
+Public APU As GBA_APU
+
 Public LastPCs(499) As UInteger
 Public LastOpcodes(499) As UInteger
 Public LogIndex As Integer
@@ -38,6 +40,18 @@ Private ExePC As UInteger
 
 Public IsRunning As Boolean = False
 Public UseBIOS As Boolean = False
+
+Public HLECounter As Integer = 0
+Public HLEStates As New Dictionary(Of UInteger, HLEState)
+
+Public Structure HLEState
+    Public Type As String
+    Public Addr As UInteger
+    Public LR As UInteger
+    Public ReturnCPSR As UInteger
+    Public ReturnPC As UInteger
+    Public ReturnThumb As Boolean
+End Structure
 Public IsHalted As Boolean = False
 Private InternalVCount As Integer = 0
 Private CycleCount As Integer = 0
@@ -144,6 +158,11 @@ Public Sub LoadBIOS(path As String)
     End If
 End Sub
 
+Public Sub ClearBIOS()
+    Array.Clear(BIOS, 0, BIOS.Length)
+    UseBIOS = False
+End Sub
+
 Public Enum BackupMediaType
     None
     EEPROM
@@ -213,6 +232,9 @@ Public Sub ResetCore()
     MakerCode = ""
     HeaderChecksumValid = False
     CartBackupType = BackupMediaType.None
+
+    If APU Is Nothing Then APU = New GBA_APU(Me)
+    APU.Reset()
 End Sub
 
 Public Sub LoadROM(path As String)
@@ -330,14 +352,32 @@ Public Function StepCycle() As Boolean
 
     If Not IsHalted Then
         ExePC = R(15)
+        If ExePC >= &HF0000000UI Then
+            If HLEStates.ContainsKey(ExePC) Then
+                Dim state = HLEStates(ExePC)
+                CPSR = state.ReturnCPSR
+                R(15) = state.ReturnPC
+                ThumbMode = state.ReturnThumb
+                HLEStates.Remove(ExePC)
+                Return False
+            End If
+        End If
 
         If ExePC >= &H0E010000UI OrElse (ExePC >= &H4000UI AndAlso ExePC < &H02000000UI) Then
             IsRunning = False
-            System.Windows.Forms.MessageBox.Show($"CPU Jumped to invalid memory region at {ExePC:X8}!" & vbCrLf & "L'emulatore è stato messo in pausa. Controlla il log per vedere l'ultima istruzione valida.")
+            Dim trace = ""
+            For i = 1 To 20
+                Dim idx = (LogIndex - i + 500) Mod 500
+                trace &= $"[{i}] PC={LastPCs(idx):X8} OP={LastOpcodes(idx):X8}" & vbCrLf
+            Next
+            Dim regs = ""
+            For i = 0 To 15 : regs &= $"R{i}={R(i):X8} " : Next
+            System.Windows.Forms.MessageBox.Show($"CPU Jumped to invalid memory region at {ExePC:X8}!" & vbCrLf & trace & vbCrLf & regs)
             Return False
         End If
 
         If ThumbMode Then
+            ExePC = ExePC And Not 1UI
             Dim opcode = Read16(ExePC)
             LastPCs(LogIndex) = ExePC : LastOpcodes(LogIndex) = opcode : LogIndex = (LogIndex + 1) Mod 500
             R(15) = ExePC + 2
@@ -346,6 +386,7 @@ Public Function StepCycle() As Boolean
 
             ExecuteThumb(opcode)
         Else
+            ExePC = ExePC And Not 3UI
             Dim opcode = Read32(ExePC)
             LastPCs(LogIndex) = ExePC : LastOpcodes(LogIndex) = opcode : LogIndex = (LogIndex + 1) Mod 500
             R(15) = ExePC + 4
@@ -354,50 +395,52 @@ Public Function StepCycle() As Boolean
         End If
     End If
 
-    CycleCount += 1
-    TickTimers()
+    Dim cyclesTaken As Integer = If(ThumbMode, 2, 3)
+    CycleCount += cyclesTaken
+    If APU IsNot Nothing Then APU.StepAPU(cyclesTaken)
+    TickTimers(cyclesTaken)
 
-    Dim scanlineCycles = CycleCount Mod 1232
-    If scanlineCycles = 0 Then
+    Dim isNewScanline = False
+    Dim isNewHBlank = False
+
+    If CycleCount >= 1232 Then
+        CycleCount -= 1232
         InternalVCount += 1
         If InternalVCount > 227 Then InternalVCount = 0
         ' Scrivi VCOUNT in memoria
         IO(6) = CByte(InternalVCount And &HFF)
         IO(7) = CByte(InternalVCount >> 8)
+        isNewScanline = True
+    End If
+    
+    If CycleCount >= 960 AndAlso (CycleCount - cyclesTaken) < 960 Then
+        isNewHBlank = True
     End If
 
     ' Aggiorna DISPSTAT
     Dim dispStat = Read16(&H4000004)
-    
-    ' Bit 0: V-Blank flag (160..227, esattamente 68 linee come da doc)
-    Dim isVBlank = InternalVCount >= 160 AndAlso InternalVCount <= 227
+    Dim isVBlank = InternalVCount >= 160 AndAlso InternalVCount < 227
     If isVBlank Then dispStat = dispStat Or 1US Else dispStat = dispStat And Not 1US
 
-    ' Bit 1: H-Blank flag (scanlineCycles >= 960)
-    Dim isHBlank = scanlineCycles >= 960
-    If isHBlank Then dispStat = dispStat Or 2US Else dispStat = dispStat And Not 2US
+    If CycleCount >= 960 Then dispStat = dispStat Or 2US Else dispStat = dispStat And Not 2US
 
-    ' Bit 2: V-Counter flag
     Dim vCountSetting = dispStat >> 8
     Dim vMatch = (InternalVCount = vCountSetting)
     If vMatch Then dispStat = dispStat Or 4US Else dispStat = dispStat And Not 4US
 
-    ' Scrivi DISPSTAT aggiornato (preserva i bit RW)
     Dim oldDispStat = Read16(&H4000004)
     dispStat = (oldDispStat And &HFF8) Or (dispStat And 7US)
     IO(4) = CByte(dispStat And &HFF)
     IO(5) = CByte(dispStat >> 8)
 
-    ' Generazione IRQ Edge-Triggered
     Dim IF_reg = Read16(&H4000202)
     
-    ' VBLANK IRQ (quando si entra in VBlank, riga 160, ciclo 0)
-    If InternalVCount = 160 AndAlso scanlineCycles = 0 Then
+    ' Removed invalid Renderer.RenderLine
+    If InternalVCount = 160 AndAlso isNewScanline Then
         frameReady = True
         If (dispStat And &H8) <> 0 Then IF_reg = IF_reg Or 1US
         CheckPendingDMAs(1)
         
-        ' I DMA H-Blank si disattivano automaticamente alla fine del frame
         For ch = 0 To 3
             Dim ctrlOff = &HBA + (ch * 12)
             Dim ctrl = CUShort(IO(ctrlOff) Or (CUShort(IO(ctrlOff + 1)) << 8))
@@ -409,23 +452,18 @@ Public Function StepCycle() As Boolean
         Next
     End If
 
-    ' HBLANK IRQ (Non viene generato durante il V-Blank, righe 160-227)
-    If scanlineCycles = 960 AndAlso InternalVCount < 160 Then
+    If isNewHBlank Then
         If (dispStat And &H10) <> 0 Then IF_reg = IF_reg Or 2US
         CheckPendingDMAs(2)
     End If
 
-    ' V-MATCH IRQ (quando si entra nella riga con match, ciclo 0)
-    If vMatch AndAlso scanlineCycles = 0 Then
+    If isNewScanline AndAlso InternalVCount = (dispStat >> 8) Then
         If (dispStat And &H20) <> 0 Then IF_reg = IF_reg Or 4US
     End If
-
-    If CycleCount >= 280896 Then CycleCount = 0
 
     IO(&H202) = CByte(IF_reg And &HFF)
     IO(&H203) = CByte(IF_reg >> 8)
 
-    ' Verifica IRQ
     Dim IME = (Read16(&H4000208) And 1) <> 0
     IE = Read16(&H4000200)
     IF_reg_check = Read16(&H4000202)
@@ -444,13 +482,13 @@ Public Function StepCycle() As Boolean
     Return frameReady
 End Function
 
-Private Sub TickTimers()
-    For i = 0 To 3
+Private Sub TickTimers(cycles As Integer)
+    For i As Integer = 0 To 3
         Dim ctrl = TM_Control(i)
-        If (ctrl And &H80) = 0 Then Continue For ' Timer stopped
+        If (ctrl And &H80) = 0 Then Continue For ' Timer disabilitato
 
-        Dim cascade = (ctrl And &H4) <> 0
-        If cascade Then Continue For ' Cascaded timers are incremented by the previous timer's overflow
+        ' Cascading mode
+        If (ctrl And &H4) <> 0 Then Continue For
 
         Dim prescalerBits = ctrl And 3
         Dim maxTicks = 1
@@ -458,17 +496,27 @@ Private Sub TickTimers()
         If prescalerBits = 2 Then maxTicks = 256
         If prescalerBits = 3 Then maxTicks = 1024
 
-        TM_Ticks(i) += 1
-        If TM_Ticks(i) >= maxTicks Then
-            TM_Ticks(i) = 0
+        TM_Ticks(i) += cycles
+        While TM_Ticks(i) >= maxTicks
+            TM_Ticks(i) -= maxTicks
             IncrementTimer(i)
-        End If
+        End While
     Next
 End Sub
 
 Private Sub IncrementTimer(i As Integer)
     If TM_Counter(i) = &HFFFFUS Then
         TM_Counter(i) = TM_Reload(i)
+
+        ' Audio FIFO trigger
+        If APU IsNot Nothing Then
+            Dim timerA = If((APU.SOUNDCNT_H And &H400) = 0, 0, 1)
+            If i = timerA Then APU.TriggerFIFOA()
+            
+            Dim timerB = If((APU.SOUNDCNT_H And &H4000) = 0, 0, 1)
+            If i = timerB Then APU.TriggerFIFOB()
+        End If
+
         ' Trigger IRQ if enabled
         If (TM_Control(i) And &H40) <> 0 Then
             Dim IF_reg = Read16(&H4000202)

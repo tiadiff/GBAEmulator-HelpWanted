@@ -182,7 +182,13 @@ Partial Public Class GBACore
         If P Then eff = If(U, addr + off, addr - off)
 
         Dim tempLoad As UInteger = 0
-        If L Then tempLoad = If(B, Read8(eff), Read32(eff))
+        If L Then
+            If B Then
+                tempLoad = Read8(eff)
+            Else
+                tempLoad = Read32(eff)
+            End If
+        End If
 
         If Not L Then
             If B Then Write8(eff, CByte(R(rd))) Else Write32(eff, If(rd = 15, GetR15() + 4, R(rd)))
@@ -190,7 +196,13 @@ Partial Public Class GBACore
 
         If Not P Or W Then R(rn) = If(U, addr + off, addr - off)
 
-        If L Then R(rd) = tempLoad
+        If L Then
+            If rd = 15 Then
+                R(15) = tempLoad And Not 3UI
+            Else
+                R(rd) = tempLoad
+            End If
+        End If
     End Sub
 
     Private Sub OpMemHalf(op As UInteger)
@@ -215,7 +227,13 @@ Partial Public Class GBACore
 
         If Not P Or W Then R(rn) = If(U, addr + off, addr - off)
 
-        If L Then R(rd) = tempLoad
+        If L Then
+            If rd = 15 Then
+                R(15) = tempLoad And Not 3UI
+            Else
+                R(rd) = tempLoad
+            End If
+        End If
     End Sub
 
     Private Sub OpMemBlock(op As UInteger)

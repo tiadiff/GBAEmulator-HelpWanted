@@ -2,18 +2,22 @@
 
 VB-GBA-HelpWanted is an experimental Game Boy Advance (GBA) emulator written entirely in **VB.NET**. 
 
-This project is currently in its early stages of development. The core components (CPU, Memory, Graphics) are being actively worked on, but there is still a long way to go to achieve full compatibility and accurate emulation.
+This project has recently made massive progress in its development! The core components (CPU, Memory, Graphics) are highly functional, with recent fixes enabling complex 3D raycasting games like **GTA Advance** to run smoothly without crashing.
 
 ## 🤝 We Need Your Help! (Cercasi Contributori!)
 
 This project is a work in progress and we are looking for passionate developers, retro-gaming enthusiasts, and VB.NET wizards to join the effort! 
 
-Whether you're an expert in emulator development or simply want to learn more about the GBA architecture, your contributions are welcome. We need help with:
-- Implementing missing ARM7TDMI CPU instructions (ARM & Thumb)
-- Refining the PPU (Graphics) and memory mapping
-- Improving timing and synchronization
-- Implementing audio (APU)
-- General debugging and refactoring
+Whether you're an expert in emulator development or simply want to learn more about the GBA architecture, your contributions are welcome. We still need help with:
+- Perfecting PPU (Graphics) edge cases and ObjWindow clipping
+- Improving audio (APU) DMA synchronization
+- Further general debugging and refactoring
+
+### 🌟 Recent Milestones Achieved:
+- ✅ Fixed CPU Instruction Fetch alignment (resolved crashes to BIOS)
+- ✅ Implemented fast HLE for Math SWIs (Div, DivArm, Sqrt) bypassing BIOS bugs
+- ✅ Fixed CycleCount accumulator preventing infinite loops in heavy ARM games
+- ✅ Corrected HBlank IRQ generation and VBlank DISPSTAT timings
 
 Check out our [CONTRIBUTING.md](CONTRIBUTING.md) to see how you can get involved.
 

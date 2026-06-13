@@ -34,13 +34,14 @@ Public Class Form1
                                   End Sub
         debugMenu.DropDownItems.Add(ioItem)
 
-        ' Mostra automaticamente i form di debug all'avvio
-        Dim debugCPU As New DebuggerForm(Emulator, Me)
-        debugCPU.Show()
-        Dim debugMem As New MemoryViewerForm(Emulator)
-        debugMem.Show()
-        Dim debugIO As New IORegistersForm(Emulator)
-        debugIO.Show()
+        ' I form di debug causano grossi rallentamenti se lasciati sempre aperti
+        ' a causa dei loro Timer di aggiornamento. Li commentiamo per l'avvio automatico.
+        ' Dim debugCPU As New DebuggerForm(Emulator, Me)
+        ' debugCPU.Show()
+        ' Dim debugMem As New MemoryViewerForm(Emulator)
+        ' debugMem.Show()
+        ' Dim debugIO As New IORegistersForm(Emulator)
+        ' debugIO.Show()
 
         ' Auto-carica gba_bios.bin se presente nei percorsi comuni
         Dim baseDir As String = AppDomain.CurrentDomain.BaseDirectory
@@ -109,6 +110,11 @@ Public Class Form1
         End If
     End Sub
 
+    Private Sub UnloadBIOSToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles UnloadBIOSToolStripMenuItem.Click
+        Emulator.ClearBIOS()
+        Me.Text = "VB.GBA Emulator (BIOS Scaricato - Uso HLE)"
+    End Sub
+
     Private Sub LoadROMToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles LoadROMToolStripMenuItem.Click
         Dim ofd As New OpenFileDialog()
         ofd.Filter = "GBA ROMs|*.gba"
@@ -126,44 +132,99 @@ Public Class Form1
         EmulationRunning = False
         Application.Exit()
     End Sub
+    
+    Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+        EmulationRunning = False
+        If Emulator.APU IsNot Nothing Then
+            Emulator.APU.StopAudio()
+        End If
+    End Sub
    
     Private Sub EmulationLoop()
         Dim sw As New Stopwatch()
         sw.Start()
+        
+        Dim fpsTimer As New Stopwatch()
+        fpsTimer.Start()
+        Dim frames As Integer = 0
+        Dim lastFps As Integer = 0
+        
+        Dim cpuTime As New Stopwatch()
+        Dim gpuTime As New Stopwatch()
+        Dim totalCpuMs As Long = 0
+        Dim totalGpuMs As Long = 0
+        Dim lastCpuMs As Long = 0
+        Dim lastGpuMs As Long = 0
+
+        ' Un frame GBA = 228 scanline x 1232 cicli = 280.896 cicli.
+        ' Il failsafe deve essere > 1 frame per permettere al gioco di restare in HALT
+        ' (es. aspettando VBlank) senza che il loop esca prematuramente.
+        Const GBA_FRAME_CYCLES As Integer = 280896
+        Const MAX_FAILSAFE As Integer = GBA_FRAME_CYCLES + 50000 ' ~1.17 frame di margine
 
         While EmulationRunning AndAlso Emulator.IsRunning
             Try
-                Dim maxFailsafe As Integer = 350000 
                 Dim cycles As Integer = 0
                 Dim frameReady As Boolean = False
 
+                cpuTime.Restart()
                 While Not frameReady
                     frameReady = Emulator.StepCycle()
                     cycles += 1
-                    If cycles > maxFailsafe Then Exit While 
+                    If cycles > MAX_FAILSAFE Then
+                        ' Failsafe: non siamo riusciti a completare un frame in tempo.
+                        ' Renderizza comunque quello che abbiamo e vai avanti.
+                        Exit While
+                    End If
                 End While
+                cpuTime.Stop()
+                totalCpuMs += cpuTime.ElapsedMilliseconds
 
-                Emulator.RenderFrame()
+                If frameReady Then 
+                    gpuTime.Restart()
+                    Emulator.RenderFrame()
+                    gpuTime.Stop()
+                    totalGpuMs += gpuTime.ElapsedMilliseconds
+                End If
 
                 Me.BeginInvoke(Sub()
-                                   Dim rect As New Rectangle(0, 0, 240, 160)
-                                   Dim data As Imaging.BitmapData = DisplayBitmap.LockBits(rect, Imaging.ImageLockMode.WriteOnly, DisplayBitmap.PixelFormat)
-                                   System.Runtime.InteropServices.Marshal.Copy(Emulator.FramePixels, 0, data.Scan0, Emulator.FramePixels.Length)
-                                   DisplayBitmap.UnlockBits(data)
-                                   ScreenBox.Invalidate()
-
-                                   Me.Text = $"PC: {Emulator.PC:X8} | Mode: {Emulator.GetRegister(16):X}"
+                                   If frameReady Then
+                                       Dim rect As New Rectangle(0, 0, 240, 160)
+                                       Dim data As Imaging.BitmapData = DisplayBitmap.LockBits(rect, Imaging.ImageLockMode.WriteOnly, DisplayBitmap.PixelFormat)
+                                       System.Runtime.InteropServices.Marshal.Copy(Emulator.FramePixels, 0, data.Scan0, Emulator.FramePixels.Length)
+                                       DisplayBitmap.UnlockBits(data)
+                                       ScreenBox.Invalidate()
+                                   End If
+                                   Me.Text = $"FPS: {lastFps} | CPU: {lastCpuMs}ms | GPU: {lastGpuMs}ms"
                                End Sub)
 
-                While sw.ElapsedMilliseconds < 16
-                    Threading.Thread.Sleep(1)
+                frames += 1
+                If fpsTimer.ElapsedMilliseconds >= 1000 Then
+                    lastFps = frames
+                    lastCpuMs = totalCpuMs
+                    lastGpuMs = totalGpuMs
+                    frames = 0
+                    totalCpuMs = 0
+                    totalGpuMs = 0
+                    fpsTimer.Restart()
+                End If
+
+                Dim targetTicks As Long = CLng((Stopwatch.Frequency * 16.74) / 1000) ' 16.74ms = ~59.7 FPS
+                While sw.ElapsedTicks < targetTicks
+                    Dim msLeft = (targetTicks - sw.ElapsedTicks) * 1000 \ Stopwatch.Frequency
+                    If msLeft > 5 Then
+                        Threading.Thread.Sleep(0) ' Cede solo il time-slice senza forzare i 15.6ms di delay
+                    Else
+                        Threading.Thread.SpinWait(100) ' Attesa attiva finale
+                    End If
                 End While
                 sw.Restart()
 
             Catch ex As Exception
                 EmulationRunning = False
                 Me.BeginInvoke(Sub()
-                                   MessageBox.Show("Crash emulatore: " & ex.Message & vbCrLf & ex.StackTrace)
+                                   MessageBox.Show("Crash emulatore: " & ex.Message & vbCrLf & ex.StackTrace,
+                                                   "Crash", MessageBoxButtons.OK, MessageBoxIcon.Error)
                                End Sub)
             End Try
         End While

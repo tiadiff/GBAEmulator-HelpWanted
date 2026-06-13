@@ -53,8 +53,12 @@ Partial Public Class GBACore
                 Dim off = ioOff And &H3FF
                 If off = 4 Then
                     Dim savedStat = CUInt(IO(4)) Or (CUInt(IO(5)) << 8)
-                    Dim stat = savedStat And &HFFB8UI ' Tieni i bit scritti (IRQ enable, V-Count setting)
-                    If InternalVCount >= 160 Then stat = stat Or 1UI
+                    Dim stat = savedStat And &HFFB8UI ' Tieni i bit RW (IRQ enable, V-Count setting)
+                    ' Bit 0: VBlank (righe 160..226, non 227 - GBATEK)
+                    If InternalVCount >= 160 AndAlso InternalVCount < 227 Then stat = stat Or 1UI
+                    ' Bit 1: HBlank (cicli >= 960 nella scanline corrente - GBATEK)
+                    If (CycleCount Mod 1232) >= 960 Then stat = stat Or 2UI
+                    ' Bit 2: VCount match
                     If InternalVCount = (savedStat >> 8) Then stat = stat Or 4UI
                     Return CUShort(stat)
                 End If
@@ -136,6 +140,14 @@ Partial Public Class GBACore
             Case &H2 : Dim a = CInt(address And &H3FFFF) : WRAM(a) = b0 : WRAM(a + 1) = b1 : WRAM(a + 2) = b2 : WRAM(a + 3) = b3
             Case &H3 : Dim a = CInt(address And &H7FFF) : IRAM(a) = b0 : IRAM(a + 1) = b1 : IRAM(a + 2) = b2 : IRAM(a + 3) = b3
             Case &H4
+                Dim ioOff = CInt(address And &HFFFF)
+                If ioOff = &HA0 Then
+                    If APU IsNot Nothing Then APU.PushFIFOA(value)
+                    Return
+                ElseIf ioOff = &HA4 Then
+                    If APU IsNot Nothing Then APU.PushFIFOB(value)
+                    Return
+                End If
                 Write16(address, CUShort(value And &HFFFFUI))
                 Write16(address + 2UI, CUShort(value >> 16))
             Case &H5 : Dim a = CInt(address And &H3FF) : PaletteRAM(a) = b0 : PaletteRAM(a + 1) = b1 : PaletteRAM(a + 2) = b2 : PaletteRAM(a + 3) = b3
@@ -190,6 +202,61 @@ Partial Public Class GBACore
                     End If
                     Return
                 End If
+                ' Master Sound Controls
+                If off = &H80 Then If APU IsNot Nothing Then APU.SOUNDCNT_L = value
+                If off = &H82 Then If APU IsNot Nothing Then APU.SOUNDCNT_H = value
+                If off = &H84 Then If APU IsNot Nothing Then APU.SOUNDCNT_X = (APU.SOUNDCNT_X And Not &H80US) Or (value And &H80US)
+                If off = &H88 Then If APU IsNot Nothing Then APU.SOUNDBIAS = value
+
+                ' Pulse 1
+                If off = &H60 Then If APU IsNot Nothing Then APU.Pulse1.NR10 = value
+                If off = &H62 Then If APU IsNot Nothing Then APU.Pulse1.NR11 = value : APU.Pulse1.NR12 = (value >> 8)
+                If off = &H64 Then 
+                    If APU IsNot Nothing Then 
+                        APU.Pulse1.NR13 = value
+                        APU.Pulse1.NR14 = (value >> 8)
+                        If (value And &H8000) <> 0 Then APU.Pulse1.Trigger()
+                    End If
+                End If
+
+                ' Pulse 2
+                If off = &H68 Then If APU IsNot Nothing Then APU.Pulse2.NR11 = value : APU.Pulse2.NR12 = (value >> 8)
+                If off = &H6C Then 
+                    If APU IsNot Nothing Then 
+                        APU.Pulse2.NR13 = value
+                        APU.Pulse2.NR14 = (value >> 8)
+                        If (value And &H8000) <> 0 Then APU.Pulse2.Trigger()
+                    End If
+                End If
+
+                ' Wave
+                If off = &H70 Then If APU IsNot Nothing Then APU.Wave.NR30 = value
+                If off = &H72 Then If APU IsNot Nothing Then APU.Wave.NR31 = value : APU.Wave.NR32 = (value >> 8)
+                If off = &H74 Then 
+                    If APU IsNot Nothing Then 
+                        APU.Wave.NR33 = value
+                        APU.Wave.NR34 = (value >> 8)
+                        If (value And &H8000) <> 0 Then APU.Wave.Trigger()
+                    End If
+                End If
+
+                ' Noise
+                If off = &H78 Then If APU IsNot Nothing Then APU.Noise.NR41 = value : APU.Noise.NR42 = (value >> 8)
+                If off = &H7A Then 
+                    If APU IsNot Nothing Then 
+                        APU.Noise.NR43 = value
+                        APU.Noise.NR44 = (value >> 8)
+                        If (value And &H8000) <> 0 Then APU.Noise.Trigger()
+                    End If
+                End If
+
+                If off >= &H90 AndAlso off <= &H9F Then
+                    If APU IsNot Nothing Then
+                        APU.Wave.WaveRAM(off - &H90) = b0
+                        APU.Wave.WaveRAM(off - &H90 + 1) = b1
+                    End If
+                End If
+
                 If off < IO.Length - 1 Then
                     Dim oldVal = CUShort(IO(off) Or (CUShort(IO(off + 1)) << 8))
                     IO(off) = b0 : IO(off + 1) = b1
@@ -219,6 +286,11 @@ Partial Public Class GBACore
                 End If
                 Dim off = ioOff And &H3FF
                 If off = &H301 AndAlso (value = &H80 OrElse value = &H0) Then IsHalted = True
+                
+                If off >= &H90 AndAlso off <= &H9F Then
+                    If APU IsNot Nothing Then APU.Wave.WaveRAM(off - &H90) = value
+                End If
+                
                 If off < IO.Length Then IO(off) = value
             Case &H5
                 Dim a = CInt(address And &H3FF) And Not 1
@@ -296,8 +368,9 @@ Partial Public Class GBACore
         End If
     End Sub
 
-    Public Sub CheckPendingDMAs(timing As Integer)
+    Public Sub CheckPendingDMAs(timing As Integer, Optional specificChannel As Integer = -1)
         For ch = 0 To 3
+            If specificChannel <> -1 AndAlso ch <> specificChannel Then Continue For
             Dim ctrlOff = &HBA + (ch * 12)
             Dim ctrl = CUShort(IO(ctrlOff) Or (CUShort(IO(ctrlOff + 1)) << 8))
             If (ctrl And &H8000) <> 0 Then
@@ -316,6 +389,11 @@ Partial Public Class GBACore
         Dim cnt As Integer = Read16(&H4000000UI + base + 8)
         If ch < 3 Then cnt = cnt And &H3FFF Else cnt = cnt And &HFFFF
         If cnt = 0 Then cnt = If(ch = 3, &H10000, &H4000)
+        
+        ' Force cnt = 4 for Sound FIFO DMA (DMA1/DMA2 with startTiming = 3)
+        If (ch = 1 OrElse ch = 2) AndAlso ((ctrl >> 12) And 3) = 3 Then
+            cnt = 4
+        End If
         
         If ch = 3 AndAlso CartBackupType = BackupMediaType.EEPROM Then
             If (dst >> 24) = &HD Then
@@ -389,6 +467,12 @@ Partial Public Class GBACore
         Dim is32 = (ctrl And &H400) <> 0
         Dim dstM = (ctrl And &H60) >> 5
         Dim srcM = (ctrl And &H180) >> 7
+        
+        ' Force Fixed Destination for Sound FIFO DMA
+        If (ch = 1 OrElse ch = 2) AndAlso ((ctrl >> 12) And 3) = 3 Then
+            dstM = 2
+        End If
+        
         Dim stepSz = If(is32, 4UI, 2UI)
         For i As Integer = 0 To cnt - 1
             If is32 Then Write32(dst, Read32(src)) Else Write16(dst, Read16(src))

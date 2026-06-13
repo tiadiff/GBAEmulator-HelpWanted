@@ -23,6 +23,14 @@ Public Class IORegistersForm
         sb.AppendLine($"DISPSTAT: {Emulator.Read16(&H4000004):X4}")
         sb.AppendLine($"VCOUNT: {Emulator.Read16(&H4000006):X4}")
         sb.AppendLine()
+        sb.AppendLine("CPU Trace:")
+        Dim trace = ""
+        For i = 1 To 20
+            Dim idx = (Emulator.LogIndex - i + 500) Mod 500
+            trace &= $"[{i}] PC={Emulator.LastPCs(idx):X8} OP={Emulator.LastOpcodes(idx):X8}" & vbCrLf
+        Next
+        sb.Append(trace)
+        sb.AppendLine()
         sb.AppendLine($"IME: {Emulator.Read16(&H4000208):X4}")
         sb.AppendLine($"IE: {Emulator.Read16(&H4000200):X4}")
         sb.AppendLine($"IF: {Emulator.Read16(&H4000202):X4}")

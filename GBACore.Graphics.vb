@@ -31,10 +31,11 @@ Partial Public Class GBACore
                         Dim bgCnt = Read16(CUInt(&H4000008 + (i * 2)))
                         Dim bgPrio = bgCnt And 3
                         If bgPrio = prio Then
-                            If mode = 0 OrElse (mode = 1 And i < 2) Then
+                            If mode = 0 OrElse (mode = 1 AndAlso i < 2) Then
                                 RenderTileBG(i, bgCnt)
-                            Else
+                            ElseIf mode = 2 OrElse (mode = 1 AndAlso i = 2) Then
                                 RenderAffineBG(i, bgCnt)
+                            ' Mode 1 con i=3: BG3 non esiste in Mode 1, si ignora
                             End If
                         End If
                     End If
@@ -429,7 +430,7 @@ Partial Public Class GBACore
             Dim sprPrio = (a2 >> 10) And 3
             If sprPrio <> targetPrio Then Continue For ' Disegna solo nella priorità corrente
 
-            Dim y = a0 And &HFF : If y >= 128 Then y -= 256
+            Dim y = a0 And &HFF : If y >= 160 Then y -= 256 ' GBATEK: Y >= 160 = sprite parzialmente sopra lo schermo (valori negativi)
             Dim x = a1 And &H1FF : If x >= 256 Then x -= 512
             
             Dim tile = a2 And &H3FF

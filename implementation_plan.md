@@ -1,25 +1,31 @@
-# GBA Emulator Performance and Rendering Fixes
+# Miglioramento della Qualità Audio GBA (APU)
 
-This plan addresses the performance and memory issues caused by WinForms `Timer` and continuous `Bitmap` instantiations.
+Il comparto audio attualmente produce un suono corretto a livello di intonazione, ma la qualità risulta "grezza" e soggetta a rumori di fondo e distorsioni.
+Questo è dovuto all'assenza di due componenti fondamentali dell'hardware originale e di un piccolo errore di miscelazione.
 
 ## Proposed Changes
 
-### 1. `Form1.vb`
-- **Replace WinForms `Timer`**: Remove `GameLoop` timer. Introduce a background `Thread` (`EmulationThread`) that will execute the emulator loop.
-- **Implement 60 FPS Syncing**: Inside the background thread, use a `Stopwatch` to measure frame time and sleep if the emulation finishes a frame in less than 16.6ms.
-- **Single Bitmap Rendering**: Create a single `Bitmap` object (`DisplayBitmap`) at startup and assign it to `ScreenBox.Image`.
-- **Thread-safe UI Updates**: Inside the emulation thread, after `StepCycle()` signals a `V-Blank`, we will call `BeginInvoke` on the form to run `LockBits`, update the `DisplayBitmap` pixels using `Marshal.Copy`, and call `ScreenBox.Invalidate()`. This ensures thread safety and zero GC pressure.
+Per raggiungere un suono fedele alla console originale interverremo su 3 fronti all'interno di `GBACore.APU.vb`.
 
-### 2. `GBACore.Graphics.vb`
-- **Preallocate Buffers**: Move `pixels()`, `winMask()`, and `objWinPixels()` from local variables to class-level `Private` arrays. This avoids creating thousands of arrays every second, completely fixing the Garbage Collector issue.
-- **Update `RenderFrameFast`**: Change the method signature to `Public Sub RenderFrame(outPixels() As Integer)`. Instead of creating and locking a `Bitmap`, it will render the frame directly into the provided `outPixels` array.
-- **Refactor Helper Methods**: Update `BuildWindowMask` and `BuildObjWindowPixels` to use the preallocated arrays.
+### 1. Frame Sequencer (Inviluppo e Decadimento)
+Attualmente i canali storici (Pulse 1, Pulse 2, Noise) generano suono senza mai attenuarsi, rendendo gli effetti sonori innaturalmente lunghi.
+Il Game Boy originale utilizza un "Frame Sequencer" hardware che gira a 512 Hz e si occupa di scalare automaticamente i volumi e spegnere i canali nel tempo.
+- **[MODIFY] [GBACore.APU.vb](file:///c:/Users/matti/source/repos/vb-gba/GBACore.APU.vb)**:
+  - Aggiungerò un `fsCycleAccumulator` che scatta ogni 32.768 cicli di clock della CPU (esattamente 512 Hz).
+  - Questo orologio chiamerà una nuova funzione `StepFrameSequencer()` che a cadenze specifiche (es. 64 Hz per l'inviluppo di volume) abbasserà progressivamente l'onda dei canali Pulse e Noise, dando vita agli effetti sonori (es. il suono dei salti o delle monete corti e puliti).
 
-### 3. `GBACore.vb`
-- Initialize the new internal arrays in `ResetCore()` if necessary, ensuring no leftover garbage pixels are drawn on reset.
+### 2. Filtro Passa-Basso Analogico (Low-Pass Filter)
+Il GBA non interpola il Direct Sound, ma sputa fuori l'audio raw scalinato. Se ascoltato così com'è, si percepiscono frequenze acute sgradevoli (Aliasing e Quantization Noise). Il GBA reale ha un circuito elettrico Resistenza-Condensatore (RC Filter) prima dello speaker che ammorbidisce il suono.
+- **[MODIFY] [GBACore.APU.vb](file:///c:/Users/matti/source/repos/vb-gba/GBACore.APU.vb)**:
+  - Applicherò un First-Order IIR Low-Pass Filter matematico (`y[n] = alpha * x[n] + (1 - alpha) * y[n-1]`) al segnale Left e Right appena prima di inviarlo al buffer. Questo donerà al suono un timbro molto più caldo e fedele a quello emesso dalla plastica del GBA.
+
+### 3. Bilanciamento del Mixer Anti-Clipping
+Al momento misceliamo fino a 2 canali Direct Sound e 4 canali PSG. La somma matematica delle onde viene poi moltiplicata per `64.0F`, causando picchi oltre il limite dei 16-bit (32767) che generano una fastidiosa distorsione armonica detta "Hard Clipping".
+- **[MODIFY] [GBACore.APU.vb](file:///c:/Users/matti/source/repos/vb-gba/GBACore.APU.vb)**:
+  - Ridurrò il moltiplicatore a `32.0F` (o simile proporzione sicura calcolata) in modo da garantire il massimo volume possibile (Headroom) senza sforare MAI il muro del clipping digitale.
 
 ## User Review Required
-
 > [!IMPORTANT]
-> - Moving the emulation loop to a background thread will significantly improve performance but requires locking mechanisms if we add UI features that pause/modify emulator state concurrently. Is it okay to use `Me.BeginInvoke` for UI synchronization?
-> - The rendering logic for `TileBG` and `Sprites` appears to be correct based on standard GBA specs (mapping and PaletteRAM extraction). If you still encounter black screens after these optimizations, it might be due to CPU/Memory timing bugs rather than the rendering code itself. Shall I proceed with these changes?
+> L'implementazione del filtro Passa-Basso cambia la "pasta" del suono rendendolo leggermente più cupo (come la vera console) anziché stridulo. Ti andrà bene questa sfumatura retro, o preferisci un mix digitale iper-cristallino a prescindere dall'accuratezza hardware?
+
+Attendo la tua approvazione per cominciare a programmare questi tre step e raffinare definitivamente l'APU!
