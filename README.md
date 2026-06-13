@@ -19,6 +19,16 @@ Whether you're an expert in emulator development or simply want to learn more ab
 - ✅ Fixed CycleCount accumulator preventing infinite loops in heavy ARM games
 - ✅ Corrected HBlank IRQ generation and VBlank DISPSTAT timings
 
+## 🗺️ Development Roadmap (What's Missing)
+To achieve a fully complete and accurate GBA emulator, the following features and systems still need to be implemented:
+- **Cycle-Accurate Timings:** Implementing Memory Waitstates and CPU Prefetch Buffer simulation.
+- **Accurate DMA:** Stalling the CPU correctly during DMA transfers rather than executing them instantly.
+- **Full APU (Audio):** Complete implementation of PSG channels 1-4 (Square, Wave, Noise) and accurate DirectSound mixing.
+- **Advanced PPU Features:** Color Special Effects (Alpha Blending, Fade in/out), Window clipping for OBJs, and Mosaic effects.
+- **Game Saves & RTC:** Full support for EEPROM, SRAM, and Flash memory saves, along with Real Time Clock (RTC) for games like Pokémon.
+- **Save States:** Functionality to serialize and deserialize the entire emulator state.
+- **Input & UI:** Gamepad/Controller support and a more feature-rich graphical interface.
+
 Check out our [CONTRIBUTING.md](CONTRIBUTING.md) to see how you can get involved.
 
 ## 🚀 Getting Started
