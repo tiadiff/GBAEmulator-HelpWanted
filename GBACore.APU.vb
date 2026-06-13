@@ -10,8 +10,8 @@ Partial Public Class GBACore
         Public WaveProvider As BufferedWaveProvider
 
         Private Const SAMPLE_RATE As Integer = 44100
-        Private Const CYCLES_PER_SAMPLE As Integer = 16777216 \ SAMPLE_RATE
-        Private sampleCycleAccumulator As Integer = 0
+        Private Const CYCLES_PER_SAMPLE As Single = 16777216.0F / SAMPLE_RATE
+        Private sampleCycleAccumulator As Single = 0
         Private fsCycleAccumulator As Integer = 0
         Private fsStep As Integer = 0
         Private prevLeft As Single = 0
@@ -114,7 +114,7 @@ Partial Public Class GBACore
             If (SOUNDCNT_X And &H80) = 0 Then Return
 
             sampleCycleAccumulator += cycles
-            If sampleCycleAccumulator >= CYCLES_PER_SAMPLE Then
+            While sampleCycleAccumulator >= CYCLES_PER_SAMPLE
                 sampleCycleAccumulator -= CYCLES_PER_SAMPLE
                 
                 ' Step canali PSG di un "campione" temporale
@@ -124,19 +124,30 @@ Partial Public Class GBACore
                 Noise.StepChannel()
                 
                 GenerateSample()
-            End If
+            End While
 
             fsCycleAccumulator += cycles
-            If fsCycleAccumulator >= 32768 Then
+            While fsCycleAccumulator >= 32768
                 fsCycleAccumulator -= 32768
                 
+                If fsStep Mod 2 = 0 Then
+                    Pulse1.ClockLength()
+                    Pulse2.ClockLength()
+                    Wave.ClockLength()
+                    Noise.ClockLength()
+                End If
+
+                If fsStep = 2 OrElse fsStep = 6 Then
+                    Pulse1.ClockSweep()
+                End If
+
                 If fsStep = 7 Then
                     Pulse1.ClockEnvelope()
                     Pulse2.ClockEnvelope()
                     Noise.ClockEnvelope()
                 End If
                 fsStep = (fsStep + 1) And 7
-            End If
+            End While
         End Sub
 
         Private Sub GenerateSample()
@@ -230,6 +241,12 @@ Partial Public Class GBACore
             Private EnvTimer As Integer = 0
             Private Enable As Boolean = False
             
+            ' Sweep & Length
+            Private SweepTimer As Integer = 0
+            Private SweepShadowFreq As Integer = 0
+            Private SweepEnable As Boolean = False
+            Private LengthCounter As Integer = 0
+            
             ' Registri simulati per brevità (in GBACore.Memory intercetteremo le scritture verso questi canali)
             Public NR10 As UShort ' Sweep (solo Pulse 1)
             Public NR11 As UShort ' Duty, Length
@@ -252,6 +269,8 @@ Partial Public Class GBACore
                 Enable = False
                 DutyPos = 0
                 FreqTimer = 0
+                SweepEnable = False
+                LengthCounter = 0
             End Sub
 
             Public Sub Trigger()
@@ -262,6 +281,16 @@ Partial Public Class GBACore
                 FreqReg = NR13 Or ((NR14 And 7) << 8)
                 FreqTimer = (2048 - FreqReg) * 4
                 DutyCycle = (NR11 >> 6) And 3
+                LengthCounter = 64 - (NR11 And &H3F)
+
+                If IsPulse1 Then
+                    SweepShadowFreq = FreqReg
+                    Dim sweepPeriod = (NR10 >> 4) And 7
+                    Dim sweepShift = NR10 And 7
+                    SweepTimer = If(sweepPeriod = 0, 8, sweepPeriod)
+                    SweepEnable = (sweepPeriod > 0 OrElse sweepShift > 0)
+                    If sweepShift > 0 Then CalculateSweepFreq()
+                End If
             End Sub
 
             Public Sub StepChannel()
@@ -290,6 +319,40 @@ Partial Public Class GBACore
                 End If
             End Sub
 
+            Public Sub ClockSweep()
+                If Not IsPulse1 OrElse Not SweepEnable OrElse Not Enable Then Return
+                Dim sweepPeriod = (NR10 >> 4) And 7
+                If sweepPeriod = 0 Then Return
+                SweepTimer -= 1
+                If SweepTimer <= 0 Then
+                    SweepTimer = If(sweepPeriod = 0, 8, sweepPeriod)
+                    Dim newFreq = CalculateSweepFreq()
+                    If newFreq <= 2047 AndAlso (NR10 And 7) > 0 Then
+                        FreqReg = newFreq
+                        SweepShadowFreq = newFreq
+                        CalculateSweepFreq() ' Calculate again for overflow check
+                    End If
+                End If
+            End Sub
+
+            Private Function CalculateSweepFreq() As Integer
+                Dim shift = NR10 And 7
+                Dim isSub = (NR10 And 8) <> 0
+                Dim newFreq = SweepShadowFreq >> shift
+                If isSub Then newFreq = SweepShadowFreq - newFreq Else newFreq = SweepShadowFreq + newFreq
+                If newFreq > 2047 Then Enable = False ' Overflow disables channel
+                Return newFreq
+            End Function
+
+            Public Sub ClockLength()
+                If Not Enable Then Return
+                Dim lengthEnable = (NR14 And &H4000) <> 0
+                If lengthEnable AndAlso LengthCounter > 0 Then
+                    LengthCounter -= 1
+                    If LengthCounter = 0 Then Enable = False
+                End If
+            End Sub
+
             Public Function GetSample() As Single
                 If Not Enable OrElse EnvVol = 0 Then Return 0
                 Return If(DutyPatterns(DutyCycle)(DutyPos) = 1, EnvVol, -EnvVol)
@@ -298,20 +361,37 @@ Partial Public Class GBACore
 
         Public Class WaveChannel
             Public Enable As Boolean = False
-            Public WaveRAM(15) As Byte
+            Public WaveRAM(1)() As Byte
             Private FreqTimer As Integer = 0
             Private FreqReg As Integer = 0
             Private WavePos As Integer = 0
+            Private LengthCounter As Integer = 0
             Public NR30 As UShort
             Public NR31 As UShort
             Public NR32 As UShort
             Public NR33 As UShort
             Public NR34 As UShort
 
+            Public Sub New()
+                WaveRAM(0) = New Byte(15) {}
+                WaveRAM(1) = New Byte(15) {}
+            End Sub
+
+            Public Sub WriteRAM(offset As Integer, value As Byte)
+                Dim bank = If((NR30 And &H40) <> 0, 1, 0)
+                WaveRAM(bank)(offset) = value
+            End Sub
+
+            Public Function ReadRAM(offset As Integer) As Byte
+                Dim bank = If((NR30 And &H40) <> 0, 1, 0)
+                Return WaveRAM(bank)(offset)
+            End Function
+
             Public Sub Reset()
                 Enable = False
                 WavePos = 0
                 FreqTimer = 0
+                LengthCounter = 0
             End Sub
 
             Public Sub Trigger()
@@ -319,6 +399,7 @@ Partial Public Class GBACore
                 FreqReg = NR33 Or ((NR34 And 7) << 8)
                 FreqTimer = (2048 - FreqReg) * 2
                 WavePos = 0
+                LengthCounter = 256 - (NR31 And &HFF)
             End Sub
 
             Public Sub StepChannel()
@@ -326,7 +407,17 @@ Partial Public Class GBACore
                 FreqTimer -= (16777216 \ SAMPLE_RATE)
                 If FreqTimer <= 0 Then
                     FreqTimer += (2048 - FreqReg) * 2
-                    WavePos = (WavePos + 1) Mod 32
+                    Dim maxPos = If((NR30 And &H20) <> 0, 64, 32)
+                    WavePos = (WavePos + 1) Mod maxPos
+                End If
+            End Sub
+
+            Public Sub ClockLength()
+                If Not Enable Then Return
+                Dim lengthEnable = (NR34 And &H4000) <> 0
+                If lengthEnable AndAlso LengthCounter > 0 Then
+                    LengthCounter -= 1
+                    If LengthCounter = 0 Then Enable = False
                 End If
             End Sub
 
@@ -335,11 +426,16 @@ Partial Public Class GBACore
                 Dim volShift = (NR32 >> 13) And 3
                 If volShift = 0 Then Return 0 ' Muto
                 Dim shift = If(volShift = 1, 0, If(volShift = 2, 1, 2)) ' 100%, 50%, 25%
+                If (NR32 And &H8000) <> 0 Then shift = 3 ' 75% volume
+
+                Dim twoBanks = (NR30 And &H20) <> 0
+                Dim cpuBank = If((NR30 And &H40) <> 0, 1, 0)
                 
-                Dim byteIdx = WavePos \ 2
-                Dim nibble = If((WavePos And 1) = 0, WaveRAM(byteIdx) >> 4, WaveRAM(byteIdx) And &HF)
+                Dim playBank = If(twoBanks, (WavePos \ 32) Mod 2, 1 - cpuBank)
+                Dim byteIdx = (WavePos Mod 32) \ 2
+                Dim nibble = If((WavePos And 1) = 0, WaveRAM(playBank)(byteIdx) >> 4, WaveRAM(playBank)(byteIdx) And &HF)
                 Dim sample = nibble - 8 ' Centra sullo zero
-                Return sample >> shift
+                Return CSng(sample >> shift)
             End Function
         End Class
 
@@ -349,6 +445,7 @@ Partial Public Class GBACore
             Private FreqTimer As Integer = 0
             Private EnvVol As Integer = 0
             Private EnvTimer As Integer = 0
+            Private LengthCounter As Integer = 0
             Public NR41 As UShort
             Public NR42 As UShort
             Public NR43 As UShort
@@ -358,6 +455,7 @@ Partial Public Class GBACore
                 Enable = False
                 LFSR = &H7FFF
                 FreqTimer = 0
+                LengthCounter = 0
             End Sub
 
             Public Sub Trigger()
@@ -366,6 +464,7 @@ Partial Public Class GBACore
                 EnvTimer = (NR42 >> 8) And 7
                 If EnvTimer = 0 Then EnvTimer = 8
                 LFSR = &H7FFF
+                LengthCounter = 64 - (NR41 And &H3F)
                 
                 Dim r = NR43 And 7
                 Dim s = (NR43 >> 4) And &HF
@@ -405,6 +504,15 @@ Partial Public Class GBACore
                     ElseIf Not isUp AndAlso EnvVol > 0 Then
                         EnvVol -= 1
                     End If
+                End If
+            End Sub
+
+            Public Sub ClockLength()
+                If Not Enable Then Return
+                Dim lengthEnable = (NR44 And &H4000) <> 0
+                If lengthEnable AndAlso LengthCounter > 0 Then
+                    LengthCounter -= 1
+                    If LengthCounter = 0 Then Enable = False
                 End If
             End Sub
 

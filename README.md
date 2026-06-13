@@ -14,6 +14,10 @@ Whether you're an expert in emulator development or simply want to learn more ab
 - Further general debugging and refactoring
 
 ### 🌟 Recent Milestones Achieved:
+- ✅ **Game Saves:** Full support for EEPROM, SRAM, and Flash memory backup (.sav files) with background auto-save.
+- ✅ **Save States:** Functionality to save and load instantaneous emulator states (up to 9 slots).
+- ✅ **UI & UX Improvements:** Drag & drop ROM loading, accurate Window Scaling (1x-4x), Pause/Resume, and smart audio mute on background.
+- ✅ Fixed compilation errors related to array syntax formatting (VB.NET trailing commas).
 - ✅ Fixed CPU Instruction Fetch alignment (resolved crashes to BIOS)
 - ✅ Implemented fast HLE for Math SWIs (Div, DivArm, Sqrt) bypassing BIOS bugs
 - ✅ Fixed CycleCount accumulator preventing infinite loops in heavy ARM games
@@ -25,9 +29,8 @@ To achieve a fully complete and accurate GBA emulator, the following features an
 - **Accurate DMA:** Stalling the CPU correctly during DMA transfers rather than executing them instantly.
 - **Full APU (Audio):** Complete implementation of PSG channels 1-4 (Square, Wave, Noise) and accurate DirectSound mixing.
 - **Advanced PPU Features:** Color Special Effects (Alpha Blending, Fade in/out), Window clipping for OBJs, and Mosaic effects.
-- **Game Saves & RTC:** Full support for EEPROM, SRAM, and Flash memory saves, along with Real Time Clock (RTC) for games like Pokémon.
-- **Save States:** Functionality to serialize and deserialize the entire emulator state.
-- **Input & UI:** Gamepad/Controller support and a more feature-rich graphical interface.
+- **Game Saves & RTC:** Real Time Clock (RTC) for games like Pokémon (Hardware saves are already implemented!).
+- **Input:** Gamepad/Controller support.
 
 Check out our [CONTRIBUTING.md](CONTRIBUTING.md) to see how you can get involved.
 

@@ -1,10 +1,61 @@
+Imports System.Runtime.InteropServices
+
 Public Class Form1
     Private Emulator As New GBACore()
     Private EmulationThread As Threading.Thread
     Private EmulationRunning As Boolean
     Private DisplayBitmap As Bitmap
+    Private CurrentRomPath As String = ""
+    Private WasRunningBeforeDeactivate As Boolean = False
+    
+    Private RecentROMs As New List(Of String)
+    Private RecentROMsFile As String = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recent_roms.txt")
+    Private WithEvents SaveTimer As New System.Windows.Forms.Timer()
+
+    Private KeyboardState As UShort = 1023
+
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure XINPUT_GAMEPAD
+        Public wButtons As UShort
+        Public bLeftTrigger As Byte
+        Public bRightTrigger As Byte
+        Public sThumbLX As Short
+        Public sThumbLY As Short
+        Public sThumbRX As Short
+        Public sThumbRY As Short
+    End Structure
+
+    <StructLayout(LayoutKind.Sequential)>
+    Private Structure XINPUT_STATE
+        Public dwPacketNumber As UInteger
+        Public Gamepad As XINPUT_GAMEPAD
+    End Structure
+
+    <DllImport("xinput1_4.dll", CallingConvention:=CallingConvention.StdCall)>
+    Private Shared Function XInputGetState(dwUserIndex As UInteger, ByRef pState As XINPUT_STATE) As Integer
+    End Function
+
+    <DllImport("xinput1_3.dll", CallingConvention:=CallingConvention.StdCall, EntryPoint:="XInputGetState")>
+    Private Shared Function XInputGetState_1_3(dwUserIndex As UInteger, ByRef pState As XINPUT_STATE) As Integer
+    End Function
+
+    Private XInputAvailable As Boolean = True
+    Private UseXInput13 As Boolean = False
 
     Public Sub New()
+        Try
+            Dim testState As New XINPUT_STATE()
+            XInputGetState(0, testState)
+        Catch ex As Exception
+            Try
+                Dim testState As New XINPUT_STATE()
+                XInputGetState_1_3(0, testState)
+                UseXInput13 = True
+            Catch ex2 As Exception
+                XInputAvailable = False
+            End Try
+        End Try
+
         InitializeComponent()
         
         DisplayBitmap = New Bitmap(240, 160, Imaging.PixelFormat.Format32bppArgb)
@@ -73,19 +124,75 @@ Public Class Form1
             If System.IO.File.Exists(path) Then
                 Emulator.LoadBIOS(path)
                 loaded = True
-                Me.Text = "VB.GBA Emulator (BIOS Caricato)"
+                StatusLabelStatus.Text = "BIOS Caricato"
                 Exit For
             End If
         Next
         
         If Not loaded Then
             ' Se non viene trovato, avvisa nel titolo
-            Me.Text = "VB.GBA Emulator (BIOS NON Trovato)"
+            StatusLabelStatus.Text = "BIOS NON Trovato"
+        End If
+        
+        LoadRecentROMs()
+
+        SaveTimer.Interval = 3000
+        SaveTimer.Start()
+        
+        InitializeSaveStates()
+    End Sub
+
+    Private Sub InitializeSaveStates()
+        For i As Integer = 1 To 9
+            Dim slotNum As Integer = i
+            Dim item As New ToolStripMenuItem("Slot " & i)
+            AddHandler item.Click, Sub(s, e)
+                                       If Emulator IsNot Nothing AndAlso CurrentRomPath <> "" Then
+                                           Dim statePath = System.IO.Path.ChangeExtension(CurrentRomPath, ".st" & slotNum)
+                                           PauseEmulation()
+                                           Emulator.SaveState(statePath)
+                                           UpdateLoadStatesMenu()
+                                           ResumeEmulation()
+                                           MessageBox.Show("Stato salvato nello Slot " & slotNum)
+                                       End If
+                                   End Sub
+            SaveStateToolStripMenuItem.DropDownItems.Add(item)
+        Next
+    End Sub
+
+    Private Sub UpdateLoadStatesMenu()
+        LoadStateToolStripMenuItem.DropDownItems.Clear()
+        If CurrentRomPath = "" Then Return
+        
+        Dim hasStates As Boolean = False
+        For i As Integer = 1 To 9
+            Dim slotNum As Integer = i
+            Dim statePath = System.IO.Path.ChangeExtension(CurrentRomPath, ".st" & slotNum)
+            If System.IO.File.Exists(statePath) Then
+                hasStates = True
+                Dim item As New ToolStripMenuItem("Load Slot " & slotNum)
+                AddHandler item.Click, Sub(s, e)
+                                           PauseEmulation()
+                                           Emulator.LoadState(statePath)
+                                           ResumeEmulation()
+                                       End Sub
+                LoadStateToolStripMenuItem.DropDownItems.Add(item)
+            End If
+        Next
+        If Not hasStates Then
+            Dim emptyItem As New ToolStripMenuItem("Nessun salvataggio trovato")
+            emptyItem.Enabled = False
+            LoadStateToolStripMenuItem.DropDownItems.Add(emptyItem)
         End If
     End Sub
 
     Public Sub PauseEmulation()
         EmulationRunning = False
+        If EmulationThread IsNot Nothing AndAlso EmulationThread.IsAlive Then
+            If Threading.Thread.CurrentThread.ManagedThreadId <> EmulationThread.ManagedThreadId Then
+                EmulationThread.Join(500)
+            End If
+        End If
     End Sub
 
     Public Sub ResumeEmulation()
@@ -112,7 +219,7 @@ Public Class Form1
 
     Private Sub UnloadBIOSToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles UnloadBIOSToolStripMenuItem.Click
         Emulator.ClearBIOS()
-        Me.Text = "VB.GBA Emulator (BIOS Scaricato - Uso HLE)"
+        StatusLabelStatus.Text = "BIOS Scaricato - Uso HLE"
     End Sub
 
     Private Sub LoadROMToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles LoadROMToolStripMenuItem.Click
@@ -120,7 +227,12 @@ Public Class Form1
         ofd.Filter = "GBA ROMs|*.gba"
         If ofd.ShowDialog() = DialogResult.OK Then
             Try
+                If CurrentRomPath <> "" Then Emulator.SaveBattery(System.IO.Path.ChangeExtension(CurrentRomPath, ".sav"))
+                CurrentRomPath = ofd.FileName
                 Emulator.LoadROM(ofd.FileName)
+                Emulator.LoadBattery(System.IO.Path.ChangeExtension(ofd.FileName, ".sav"))
+                UpdateLoadStatesMenu()
+                AddRecentROM(ofd.FileName)
                 ResumeEmulation()
             Catch ex As Exception
                 MessageBox.Show("Errore nel caricamento della ROM: " & ex.Message)
@@ -131,13 +243,6 @@ Public Class Form1
     Private Sub ExitToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ExitToolStripMenuItem.Click
         EmulationRunning = False
         Application.Exit()
-    End Sub
-    
-    Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
-        EmulationRunning = False
-        If Emulator.APU IsNot Nothing Then
-            Emulator.APU.StopAudio()
-        End If
     End Sub
    
     Private Sub EmulationLoop()
@@ -164,6 +269,32 @@ Public Class Form1
 
         While EmulationRunning AndAlso Emulator.IsRunning
             Try
+                Dim gpState As UShort = 1023
+                If XInputAvailable Then
+                    Dim xs As New XINPUT_STATE()
+                    Dim res As Integer
+                    If UseXInput13 Then
+                        res = XInputGetState_1_3(0, xs)
+                    Else
+                        res = XInputGetState(0, xs)
+                    End If
+
+                    If res = 0 Then ' ERROR_SUCCESS
+                        Dim btns = xs.Gamepad.wButtons
+                        If (btns And &H1000) <> 0 Then gpState = gpState And Not 1US ' A
+                        If (btns And &H2000) <> 0 OrElse (btns And &H4000) <> 0 Then gpState = gpState And Not 2US ' B / X
+                        If (btns And &H20) <> 0 Then gpState = gpState And Not 4US ' Select
+                        If (btns And &H10) <> 0 Then gpState = gpState And Not 8US ' Start
+                        If (btns And &H8) <> 0 OrElse xs.Gamepad.sThumbLX > 16000 Then gpState = gpState And Not 16US ' Right
+                        If (btns And &H4) <> 0 OrElse xs.Gamepad.sThumbLX < -16000 Then gpState = gpState And Not 32US ' Left
+                        If (btns And &H1) <> 0 OrElse xs.Gamepad.sThumbLY > 16000 Then gpState = gpState And Not 64US ' Up
+                        If (btns And &H2) <> 0 OrElse xs.Gamepad.sThumbLY < -16000 Then gpState = gpState And Not 128US ' Down
+                        If (btns And &H200) <> 0 Then gpState = gpState And Not 256US ' R
+                        If (btns And &H100) <> 0 Then gpState = gpState And Not 512US ' L
+                    End If
+                End If
+                Emulator.KeyState = KeyboardState And gpState
+
                 Dim cycles As Integer = 0
                 Dim frameReady As Boolean = False
 
@@ -195,7 +326,9 @@ Public Class Form1
                                        DisplayBitmap.UnlockBits(data)
                                        ScreenBox.Invalidate()
                                    End If
-                                   Me.Text = $"FPS: {lastFps} | CPU: {lastCpuMs}ms | GPU: {lastGpuMs}ms"
+                                   StatusLabelFPS.Text = $"FPS: {lastFps}"
+                                   StatusLabelCPU.Text = $"CPU: {lastCpuMs}ms"
+                                   StatusLabelGPU.Text = $"GPU: {lastGpuMs}ms"
                                End Sub)
 
                 frames += 1
@@ -255,33 +388,199 @@ Public Class Form1
     ' In Form1.vb
     Private Sub Form1_KeyDown(sender As Object, e As KeyEventArgs) Handles MyBase.KeyDown
         Select Case e.KeyCode
-            Case Keys.X : Emulator.KeyState = Emulator.KeyState And Not 1US ' A
-            Case Keys.Z : Emulator.KeyState = Emulator.KeyState And Not 2US ' B
-            Case Keys.Back, Keys.Space, Keys.ShiftKey : Emulator.KeyState = Emulator.KeyState And Not 4US ' Select
-            Case Keys.Enter : Emulator.KeyState = Emulator.KeyState And Not 8US ' Start
-            Case Keys.Right : Emulator.KeyState = Emulator.KeyState And Not 16US
-            Case Keys.Left : Emulator.KeyState = Emulator.KeyState And Not 32US
-            Case Keys.Up : Emulator.KeyState = Emulator.KeyState And Not 64US
-            Case Keys.Down : Emulator.KeyState = Emulator.KeyState And Not 128US
-            Case Keys.S : Emulator.KeyState = Emulator.KeyState And Not 256US ' R
-            Case Keys.A : Emulator.KeyState = Emulator.KeyState And Not 512US ' L
+            Case Keys.A : KeyboardState = KeyboardState And Not 1US ' A
+            Case Keys.B : KeyboardState = KeyboardState And Not 2US ' B
+            Case Keys.Space : KeyboardState = KeyboardState And Not 4US ' Select
+            Case Keys.Enter : KeyboardState = KeyboardState And Not 8US ' Start
+            Case Keys.Right : KeyboardState = KeyboardState And Not 16US
+            Case Keys.Left : KeyboardState = KeyboardState And Not 32US
+            Case Keys.Up : KeyboardState = KeyboardState And Not 64US
+            Case Keys.Down : KeyboardState = KeyboardState And Not 128US
+            Case Keys.R : KeyboardState = KeyboardState And Not 256US ' R
+            Case Keys.L : KeyboardState = KeyboardState And Not 512US ' L
         End Select
     End Sub
 
     Private Sub Form1_KeyUp(sender As Object, e As KeyEventArgs) Handles MyBase.KeyUp
         Select Case e.KeyCode
-            Case Keys.X : Emulator.KeyState = Emulator.KeyState Or 1US
-            Case Keys.Z : Emulator.KeyState = Emulator.KeyState Or 2US
-            Case Keys.Back, Keys.Space, Keys.ShiftKey : Emulator.KeyState = Emulator.KeyState Or 4US
-            Case Keys.Enter : Emulator.KeyState = Emulator.KeyState Or 8US
-            Case Keys.Right : Emulator.KeyState = Emulator.KeyState Or 16US
-            Case Keys.Left : Emulator.KeyState = Emulator.KeyState Or 32US
-            Case Keys.Up : Emulator.KeyState = Emulator.KeyState Or 64US
-            Case Keys.Down : Emulator.KeyState = Emulator.KeyState Or 128US
-            Case Keys.S : Emulator.KeyState = Emulator.KeyState Or 256US
-            Case Keys.A : Emulator.KeyState = Emulator.KeyState Or 512US
+            Case Keys.A : KeyboardState = KeyboardState Or 1US ' A
+            Case Keys.B : KeyboardState = KeyboardState Or 2US ' B
+            Case Keys.Space : KeyboardState = KeyboardState Or 4US ' Select
+            Case Keys.Enter : KeyboardState = KeyboardState Or 8US ' Start
+            Case Keys.Right : KeyboardState = KeyboardState Or 16US
+            Case Keys.Left : KeyboardState = KeyboardState Or 32US
+            Case Keys.Up : KeyboardState = KeyboardState Or 64US
+            Case Keys.Down : KeyboardState = KeyboardState Or 128US
+            Case Keys.R : KeyboardState = KeyboardState Or 256US ' R
+            Case Keys.L : KeyboardState = KeyboardState Or 512US ' L
         End Select
     End Sub
 
+    Private Sub PauseResumeToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles PauseResumeToolStripMenuItem.Click
+        If EmulationRunning Then
+            PauseEmulation()
+        ElseIf Emulator.IsRunning Then
+            ResumeEmulation()
+        End If
+    End Sub
+
+    Private Sub ResetToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ResetToolStripMenuItem.Click
+        If CurrentRomPath <> "" Then
+            PauseEmulation()
+            Emulator.SaveBattery(System.IO.Path.ChangeExtension(CurrentRomPath, ".sav"))
+            Emulator.LoadROM(CurrentRomPath)
+            Emulator.LoadBattery(System.IO.Path.ChangeExtension(CurrentRomPath, ".sav"))
+            ResumeEmulation()
+        End If
+    End Sub
+
+    Private Sub ControlsToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ControlsToolStripMenuItem.Click
+        Dim msg As String = "D-Pad: Freccette Direzionali" & vbCrLf &
+                            "A: A" & vbCrLf &
+                            "B: B" & vbCrLf &
+                            "L: L" & vbCrLf &
+                            "R: R" & vbCrLf &
+                            "Start: Invio" & vbCrLf &
+                            "Select: Spazio"
+        MessageBox.Show(msg, "Controlli GBA", MessageBoxButtons.OK, MessageBoxIcon.Information)
+    End Sub
+
+    Private Sub SetWindowScale(scale As Integer)
+        Dim targetWidth As Integer = 240 * scale
+        Dim targetHeight As Integer = 160 * scale
+        Me.ClientSize = New Size(targetWidth, targetHeight + MenuStrip1.Height + StatusStrip1.Height)
+    End Sub
+
+    Private Sub Size1xToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles Size1xToolStripMenuItem.Click
+        SetWindowScale(1)
+    End Sub
+    Private Sub Size2xToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles Size2xToolStripMenuItem.Click
+        SetWindowScale(2)
+    End Sub
+    Private Sub Size3xToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles Size3xToolStripMenuItem.Click
+        SetWindowScale(3)
+    End Sub
+    Private Sub Size4xToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles Size4xToolStripMenuItem.Click
+        SetWindowScale(4)
+    End Sub
+
+    Private Sub Form1_DragEnter(sender As Object, e As DragEventArgs) Handles MyBase.DragEnter, ScreenBox.DragEnter
+        If e.Data.GetDataPresent(DataFormats.FileDrop) Then
+            e.Effect = DragDropEffects.Copy
+        Else
+            e.Effect = DragDropEffects.None
+        End If
+    End Sub
+
+    Private Sub Form1_DragDrop(sender As Object, e As DragEventArgs) Handles MyBase.DragDrop, ScreenBox.DragDrop
+        Dim files As String() = CType(e.Data.GetData(DataFormats.FileDrop), String())
+        If files.Length > 0 Then
+            Dim ext As String = System.IO.Path.GetExtension(files(0)).ToLower()
+            If ext = ".gba" Then
+                Try
+                    If CurrentRomPath <> "" Then Emulator.SaveBattery(System.IO.Path.ChangeExtension(CurrentRomPath, ".sav"))
+                    CurrentRomPath = files(0)
+                    Emulator.LoadROM(files(0))
+                    Emulator.LoadBattery(System.IO.Path.ChangeExtension(files(0), ".sav"))
+                    UpdateLoadStatesMenu()
+                    AddRecentROM(files(0))
+                    ResumeEmulation()
+                Catch ex As Exception
+                    MessageBox.Show("Errore nel caricamento della ROM: " & ex.Message)
+                End Try
+            ElseIf ext = ".bin" OrElse ext = ".bios" Then
+                Emulator.LoadBIOS(files(0))
+                StatusLabelStatus.Text = "BIOS Caricato"
+            End If
+        End If
+    End Sub
+
+    Private Sub Form1_Deactivate(sender As Object, e As EventArgs) Handles Me.Deactivate
+        WasRunningBeforeDeactivate = EmulationRunning
+        If EmulationRunning Then
+            PauseEmulation()
+            If Emulator.APU IsNot Nothing Then
+                Emulator.APU.StopAudio()
+            End If
+        End If
+    End Sub
+
+    Private Sub Form1_Activated(sender As Object, e As EventArgs) Handles Me.Activated
+        If WasRunningBeforeDeactivate AndAlso Not EmulationRunning Then
+            ResumeEmulation()
+        End If
+    End Sub
+
+    Private Sub LoadRecentROMs()
+        If System.IO.File.Exists(RecentROMsFile) Then
+            RecentROMs.AddRange(System.IO.File.ReadAllLines(RecentROMsFile))
+            ' Rimuovi duplicati o file non più esistenti
+            RecentROMs = RecentROMs.Where(Function(s) Not String.IsNullOrWhiteSpace(s) AndAlso System.IO.File.Exists(s)).Distinct().ToList()
+        End If
+        UpdateRecentROMsMenu()
+    End Sub
+
+    Private Sub SaveRecentROMs()
+        System.IO.File.WriteAllLines(RecentROMsFile, RecentROMs.ToArray())
+    End Sub
+
+    Private Sub AddRecentROM(path As String)
+        If RecentROMs.Contains(path) Then
+            RecentROMs.Remove(path)
+        End If
+        RecentROMs.Insert(0, path)
+        If RecentROMs.Count > 10 Then
+            RecentROMs.RemoveAt(RecentROMs.Count - 1)
+        End If
+        SaveRecentROMs()
+        UpdateRecentROMsMenu()
+    End Sub
+
+    Private Sub UpdateRecentROMsMenu()
+        RecentROMsToolStripMenuItem.DropDownItems.Clear()
+        If RecentROMs.Count = 0 Then
+            Dim emptyItem As New ToolStripMenuItem("(Nessuna)")
+            emptyItem.Enabled = False
+            RecentROMsToolStripMenuItem.DropDownItems.Add(emptyItem)
+        Else
+            For Each rom In RecentROMs
+                Dim romPath As String = rom ' Copia locale per la lambda
+                Dim item As New ToolStripMenuItem(System.IO.Path.GetFileName(romPath))
+                item.ToolTipText = romPath
+                AddHandler item.Click, Sub(s, e)
+                                           Try
+                                               PauseEmulation()
+                                               If CurrentRomPath <> "" Then Emulator.SaveBattery(System.IO.Path.ChangeExtension(CurrentRomPath, ".sav"))
+                                               CurrentRomPath = romPath
+                                               Emulator.LoadROM(romPath)
+                                               Emulator.LoadBattery(System.IO.Path.ChangeExtension(romPath, ".sav"))
+                                               UpdateLoadStatesMenu()
+                                               AddRecentROM(romPath)
+                                               ResumeEmulation()
+                                           Catch ex As Exception
+                                               MessageBox.Show("Errore nel caricamento della ROM: " & ex.Message)
+                                           End Try
+                                       End Sub
+                RecentROMsToolStripMenuItem.DropDownItems.Add(item)
+            Next
+        End If
+    End Sub
+
+    Private Sub SaveTimer_Tick(sender As Object, e As EventArgs) Handles SaveTimer.Tick
+        If Emulator IsNot Nothing AndAlso Emulator.BatteryModified AndAlso CurrentRomPath <> "" Then
+            Emulator.SaveBattery(System.IO.Path.ChangeExtension(CurrentRomPath, ".sav"))
+            Emulator.BatteryModified = False
+        End If
+    End Sub
+
+    Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+        EmulationRunning = False
+        If Emulator IsNot Nothing AndAlso Emulator.APU IsNot Nothing Then
+            Emulator.APU.StopAudio()
+        End If
+        If Emulator IsNot Nothing AndAlso CurrentRomPath <> "" Then
+            Emulator.SaveBattery(System.IO.Path.ChangeExtension(CurrentRomPath, ".sav"))
+        End If
+    End Sub
 
 End Class

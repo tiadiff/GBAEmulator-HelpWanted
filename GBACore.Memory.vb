@@ -69,6 +69,15 @@ Partial Public Class GBACore
                     Dim tIdx = (off - &H100) \ 4
                     If (off And 2) = 0 Then Return TM_Counter(tIdx) Else Return TM_Control(tIdx)
                 End If
+                If off >= &H90 AndAlso off <= &H9F Then
+                    If APU IsNot Nothing Then
+                        Dim b0 = APU.Wave.ReadRAM(off - &H90)
+                        Dim b1 = APU.Wave.ReadRAM(off - &H90 + 1)
+                        Return CUShort(b0 Or (CUShort(b1) << 8))
+                    Else
+                        Return 0
+                    End If
+                End If
                 If off < IO.Length - 1 Then Return CUShort(IO(off) Or (CUShort(IO(off + 1)) << 8))
             Case &H5 : Dim a = CInt(address And &H3FF) : Return CUShort(PaletteRAM(a) Or (CUShort(PaletteRAM(a + 1)) << 8))
             Case &H6 : Dim a = CInt(address And &H1FFFF) : If a >= 98304 Then a -= 32768
@@ -106,6 +115,9 @@ Partial Public Class GBACore
                     Return CByte((MemCtrl >> shift) And &HFF)
                 End If
                 Dim off = ioOff And &H3FF
+                If off >= &H90 AndAlso off <= &H9F Then
+                    If APU IsNot Nothing Then Return APU.Wave.ReadRAM(off - &H90) Else Return 0
+                End If
                 If off < IO.Length Then Return IO(off)
             Case &H5 : Return PaletteRAM(CInt(address And &H3FF))
             Case &H6 : Dim a = CInt(address And &H1FFFF) : If a >= 98304 Then a -= 32768
@@ -155,7 +167,10 @@ Partial Public Class GBACore
                        VRAM(a) = b0 : VRAM(a + 1) = b1 : VRAM(a + 2) = b2 : VRAM(a + 3) = b3
             Case &H7 : Dim a = CInt(address And &H3FF) : OAM(a) = b0 : OAM(a + 1) = b1 : OAM(a + 2) = b2 : OAM(a + 3) = b3
             Case &HE
-                If CartBackupType = BackupMediaType.SRAM Then SRAM(CInt(address And &H7FFF)) = b0
+                If CartBackupType = BackupMediaType.SRAM Then 
+                    SRAM(CInt(address And &H7FFF)) = b0
+                    BatteryModified = True
+                End If
         End Select
     End Sub
 
@@ -252,8 +267,8 @@ Partial Public Class GBACore
 
                 If off >= &H90 AndAlso off <= &H9F Then
                     If APU IsNot Nothing Then
-                        APU.Wave.WaveRAM(off - &H90) = b0
-                        APU.Wave.WaveRAM(off - &H90 + 1) = b1
+                        APU.Wave.WriteRAM(off - &H90, b0)
+                        APU.Wave.WriteRAM(off - &H90 + 1, b1)
                     End If
                 End If
 
@@ -269,7 +284,10 @@ Partial Public Class GBACore
                        VRAM(a) = b0 : VRAM(a + 1) = b1
             Case &H7 : Dim a = CInt(address And &H3FF) : OAM(a) = b0 : OAM(a + 1) = b1
             Case &HE
-                If CartBackupType = BackupMediaType.SRAM Then SRAM(CInt(address And &H7FFF)) = b0
+                If CartBackupType = BackupMediaType.SRAM Then 
+                    SRAM(CInt(address And &H7FFF)) = b0
+                    BatteryModified = True
+                End If
         End Select
     End Sub
 
@@ -288,7 +306,7 @@ Partial Public Class GBACore
                 If off = &H301 AndAlso (value = &H80 OrElse value = &H0) Then IsHalted = True
                 
                 If off >= &H90 AndAlso off <= &H9F Then
-                    If APU IsNot Nothing Then APU.Wave.WaveRAM(off - &H90) = value
+                    If APU IsNot Nothing Then APU.Wave.WriteRAM(off - &H90, value)
                 End If
                 
                 If off < IO.Length Then IO(off) = value
@@ -306,6 +324,7 @@ Partial Public Class GBACore
                 Dim a = CInt(address And &HFFFF)
                 If CartBackupType = BackupMediaType.SRAM Then
                     SRAM(a And &H7FFF) = value
+                    BatteryModified = True
                 ElseIf CartBackupType = BackupMediaType.FLASH OrElse CartBackupType = BackupMediaType.FLASH512 OrElse CartBackupType = BackupMediaType.FLASH1M Then
                     If a = &H5555 AndAlso value = &HAA Then
                         If FlashState = 0 OrElse FlashState = 3 Then FlashState = 1
@@ -323,12 +342,14 @@ Partial Public Class GBACore
                         If FlashState = 6 Then
                             For i As Integer = 0 To FlashData.Length - 1 : FlashData(i) = &HFF : Next
                             FlashState = 0
+                            BatteryModified = True
                         End If
                     ElseIf value = &H30 Then
                         If FlashState = 6 Then
                             Dim sec = (a And &HF000) Or (FlashBank * &H10000)
                             For i As Integer = 0 To &HFFF : FlashData(sec + i) = &HFF : Next
                             FlashState = 0
+                            BatteryModified = True
                         End If
                     ElseIf a = &H5555 AndAlso value = &HA0 Then
                         If FlashState = 2 Then FlashState = 7
@@ -340,6 +361,7 @@ Partial Public Class GBACore
                     ElseIf FlashState = 7 Then
                         FlashData(a + (FlashBank * &H10000)) = value
                         FlashState = 0
+                        BatteryModified = True
                     Else
                         FlashState = 0
                     End If
@@ -427,6 +449,7 @@ Partial Public Class GBACore
                         data(b) = CByte(bval)
                     Next
                     Array.Copy(data, 0, EEPROMData, addr * 8, 8)
+                    BatteryModified = True
                 End If
                 Dim clr2 = CUShort(ctrl And &H7FFF)
                 IO(base + 10) = CByte(clr2 And &HFF) : IO(base + 11) = CByte((clr2 >> 8) And &HFF)

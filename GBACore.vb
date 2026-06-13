@@ -26,8 +26,75 @@ Private OAM(1023) As Byte
 Private IO(1023) As Byte
 Public KeyState As UShort = &H3FF
 
-' Registri Banked (GBATEK)
-Private UserRegs(15) As UInteger
+    Public Shared ReadOnly IOReadMask As UShort() = New UShort(511) {
+    &HFFFFUS, &H0US, &HFFFFUS, &HFFUS, &H0US, &H0US, &H0US, &HFFFFUS, ' 00E
+    &H0US, &HFFFFUS, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 01E
+    &H0US, &H0US, &H0US, &HFFFFUS, &H0US, &H0US, &H0US, &H0US, ' 02E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 03E
+    &H0US, &HFFFFUS, &H0US, &HFFFFUS, &HFFFFUS, &HFFFFUS, &H0US, &H0US, ' 04E
+    &HFFFFUS, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 05E
+    &HFFFFUS, &HFFFFUS, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 06E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 07E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 08E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 09E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 0AE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 0BE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 0CE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &HFFFFUS, ' 0DE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 0EE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 0FE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &HFFFFUS, ' 10E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 11E
+    &H0US, &H0US, &H0US, &H0US, &HFFFFUS, &H0US, &H0US, &H0US, ' 12E
+    &H3FFUS, &H0US, &H0US, &HCFUS, &H0US, &H0US, &H0US, &H0US, ' 13E
+    &HFFFFUS, &HFFFFUS, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 14E
+    &H0US, &H0US, &H0US, &H0US, &HFFFFUS, &HFFFFUS, &H0US, &H0US, ' 15E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 16E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 17E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 18E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 19E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 1AE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 1BE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 1CE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 1DE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 1EE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 1FE
+    &H3FFFUS, &H3FFFUS, &HFFFFUS, &H0US, &H1US, &HFFFFUS, &H0US, &H0US, ' 20E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 21E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 22E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 23E
+    &HFFUS, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 24E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 25E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 26E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 27E
+    &HFFFFUS, &HFFFFUS, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 28E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 29E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 2AE
+    &HFFFFUS, &HFFFFUS, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 2BE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 2CE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 2DE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 2EE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 2FE
+    &H0US, &H0US, &HFFFFUS, &HFFFFUS, &H0US, &H0US, &H0US, &H0US, ' 30E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 31E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 32E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 33E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 34E
+    &HFFFFUS, &HFFFFUS, &HFFFFUS, &HFFFFUS, &H0US, &H0US, &HFFFFUS, &HFFFFUS, ' 35E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 36E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 37E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 38E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 39E
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 3AE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 3BE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 3CE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 3DE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, ' 3EE
+    &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US, &H0US ' 3FE
+}
+
+    ' Registri Banked (GBATEK)
+    Private UserRegs(15) As UInteger
 Private FIQRegs(6) As UInteger ' R8-R14
 Private SVCRegs(1) As UInteger ' R13-R14
 Private ABTRegs(1) As UInteger
@@ -177,6 +244,138 @@ Public GameCode As String = ""
 Public MakerCode As String = ""
 Public HeaderChecksumValid As Boolean = False
 Public CartBackupType As BackupMediaType = BackupMediaType.None
+Public BatteryModified As Boolean = False
+
+Public Sub LoadBattery(savPath As String)
+    If Not File.Exists(savPath) Then Return
+    Try
+        Dim bytes = File.ReadAllBytes(savPath)
+        Select Case CartBackupType
+            Case BackupMediaType.SRAM
+                Array.Copy(bytes, SRAM, Math.Min(bytes.Length, SRAM.Length))
+            Case BackupMediaType.EEPROM
+                Array.Copy(bytes, EEPROMData, Math.Min(bytes.Length, EEPROMData.Length))
+            Case BackupMediaType.FLASH, BackupMediaType.FLASH512, BackupMediaType.FLASH1M
+                Array.Copy(bytes, FlashData, Math.Min(bytes.Length, FlashData.Length))
+        End Select
+    Catch
+    End Try
+End Sub
+
+Public Sub SaveBattery(savPath As String)
+    Try
+        Select Case CartBackupType
+            Case BackupMediaType.SRAM
+                File.WriteAllBytes(savPath, SRAM)
+            Case BackupMediaType.EEPROM
+                File.WriteAllBytes(savPath, EEPROMData)
+            Case BackupMediaType.FLASH, BackupMediaType.FLASH512
+                Dim data(65535) As Byte
+                Array.Copy(FlashData, data, 65536)
+                File.WriteAllBytes(savPath, data)
+            Case BackupMediaType.FLASH1M
+                File.WriteAllBytes(savPath, FlashData)
+        End Select
+    Catch
+    End Try
+End Sub
+
+Public Sub SaveState(path As String)
+    Try
+        Using fs As New System.IO.FileStream(path, System.IO.FileMode.Create)
+            Using bw As New System.IO.BinaryWriter(fs)
+                bw.Write(WRAM)
+                bw.Write(IRAM)
+                bw.Write(PaletteRAM)
+                bw.Write(VRAM)
+                bw.Write(OAM)
+                bw.Write(IO)
+                bw.Write(SRAM)
+                bw.Write(EEPROMData)
+                bw.Write(FlashData)
+                
+                For Each reg In UserRegs : bw.Write(reg) : Next
+                For Each reg In FIQRegs : bw.Write(reg) : Next
+                For Each reg In SVCRegs : bw.Write(reg) : Next
+                For Each reg In ABTRegs : bw.Write(reg) : Next
+                For Each reg In IRQRegs : bw.Write(reg) : Next
+                For Each reg In UNDRegs : bw.Write(reg) : Next
+                For Each reg In SPSRs : bw.Write(reg) : Next
+                For Each reg In TM_Counter : bw.Write(reg) : Next
+                For Each reg In TM_Reload : bw.Write(reg) : Next
+                For Each reg In TM_Control : bw.Write(reg) : Next
+                For Each reg In TM_Ticks : bw.Write(reg) : Next
+                For Each reg In DMASrc : bw.Write(reg) : Next
+                For Each reg In DMADst : bw.Write(reg) : Next
+                
+                bw.Write(CPSR)
+                bw.Write(ExePC)
+                bw.Write(KeyState)
+                bw.Write(InternalVCount)
+                bw.Write(CycleCount)
+                bw.Write(WaitCnt)
+                bw.Write(MemCtrl)
+                bw.Write(EEPROMAddress)
+                bw.Write(FlashState)
+                bw.Write(FlashBank)
+                bw.Write(CInt(CartBackupType))
+                bw.Write(IsHalted)
+            End Using
+        End Using
+    Catch
+    End Try
+End Sub
+
+Public Sub LoadState(path As String)
+    If Not System.IO.File.Exists(path) Then Return
+    Try
+        Using fs As New System.IO.FileStream(path, System.IO.FileMode.Open)
+            Using br As New System.IO.BinaryReader(fs)
+                Dim data = br.ReadBytes(WRAM.Length) : Array.Copy(data, WRAM, data.Length)
+                data = br.ReadBytes(IRAM.Length) : Array.Copy(data, IRAM, data.Length)
+                data = br.ReadBytes(PaletteRAM.Length) : Array.Copy(data, PaletteRAM, data.Length)
+                data = br.ReadBytes(VRAM.Length) : Array.Copy(data, VRAM, data.Length)
+                data = br.ReadBytes(OAM.Length) : Array.Copy(data, OAM, data.Length)
+                data = br.ReadBytes(IO.Length) : Array.Copy(data, IO, data.Length)
+                data = br.ReadBytes(SRAM.Length) : Array.Copy(data, SRAM, data.Length)
+                data = br.ReadBytes(EEPROMData.Length) : Array.Copy(data, EEPROMData, data.Length)
+                data = br.ReadBytes(FlashData.Length) : Array.Copy(data, FlashData, data.Length)
+                
+                For i As Integer = 0 To UserRegs.Length - 1 : UserRegs(i) = br.ReadUInt32() : Next
+                For i As Integer = 0 To FIQRegs.Length - 1 : FIQRegs(i) = br.ReadUInt32() : Next
+                For i As Integer = 0 To SVCRegs.Length - 1 : SVCRegs(i) = br.ReadUInt32() : Next
+                For i As Integer = 0 To ABTRegs.Length - 1 : ABTRegs(i) = br.ReadUInt32() : Next
+                For i As Integer = 0 To IRQRegs.Length - 1 : IRQRegs(i) = br.ReadUInt32() : Next
+                For i As Integer = 0 To UNDRegs.Length - 1 : UNDRegs(i) = br.ReadUInt32() : Next
+                For i As Integer = 0 To SPSRs.Length - 1 : SPSRs(i) = br.ReadUInt32() : Next
+                For i As Integer = 0 To TM_Counter.Length - 1 : TM_Counter(i) = br.ReadUInt16() : Next
+                For i As Integer = 0 To TM_Reload.Length - 1 : TM_Reload(i) = br.ReadUInt16() : Next
+                For i As Integer = 0 To TM_Control.Length - 1 : TM_Control(i) = br.ReadUInt16() : Next
+                For i As Integer = 0 To TM_Ticks.Length - 1 : TM_Ticks(i) = br.ReadInt32() : Next
+                For i As Integer = 0 To DMASrc.Length - 1 : DMASrc(i) = br.ReadUInt32() : Next
+                For i As Integer = 0 To DMADst.Length - 1 : DMADst(i) = br.ReadUInt32() : Next
+                
+                CPSR = br.ReadUInt32()
+                ExePC = br.ReadUInt32()
+                KeyState = br.ReadUInt16()
+                InternalVCount = br.ReadInt32()
+                CycleCount = br.ReadInt32()
+                WaitCnt = br.ReadUInt16()
+                MemCtrl = br.ReadUInt32()
+                EEPROMAddress = br.ReadInt32()
+                FlashState = br.ReadInt32()
+                FlashBank = br.ReadInt32()
+                CartBackupType = CType(br.ReadInt32(), BackupMediaType)
+                IsHalted = br.ReadBoolean()
+            End Using
+        End Using
+        
+        Array.Clear(FramePixels, 0, FramePixels.Length)
+        Array.Clear(WinMaskCache, 0, WinMaskCache.Length)
+        Array.Clear(ObjWinPixelsCache, 0, ObjWinPixelsCache.Length)
+    Catch
+    End Try
+End Sub
 
 Public Sub ResetCore()
     Array.Clear(SRAM, 0, SRAM.Length)
