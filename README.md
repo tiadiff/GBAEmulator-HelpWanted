@@ -6,7 +6,7 @@ This project has recently made massive progress in its development! The core com
 
 <img width="1910" height="1006" alt="Screenshot 2026-06-15 173153" src="https://github.com/user-attachments/assets/0e84429d-7c68-4e39-8b4d-1d993b645d2d" />
 
-## 🤝 We Need Your Help! (Cercasi Contributori!)
+## 🤝 We Need Your Help!
 
 This project is a work in progress and we are looking for passionate developers, retro-gaming enthusiasts, and VB.NET wizards to join the effort! 
 
