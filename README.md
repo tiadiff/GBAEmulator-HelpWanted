@@ -24,13 +24,15 @@ Whether you're an expert in emulator development or simply want to learn more ab
 - ✅ Implemented fast HLE for Math SWIs (Div, DivArm, Sqrt) bypassing BIOS bugs
 - ✅ Fixed CycleCount accumulator preventing infinite loops in heavy ARM games
 - ✅ Corrected HBlank IRQ generation and VBlank DISPSTAT timings
+- ✅ **Advanced PPU Features:** Complete Color Special Effects (Alpha Blending, Brightness increase/decrease) and Window clipping.
+- ✅ **Full APU (Audio):** Complete implementation of PSG channels 1-4 (Square, Wave, Noise) and accurate DirectSound mixing, including isolated channel toggling.
+- ✅ **Debugger Suite:** Added a comprehensive set of resizable debug windows (CPU Disassembler, APU Viewer, VRAM & OAM Viewer, Tilemap Viewer, IO Registers, etc.).
+- ✅ **Advanced Emulator Settings:** Introduced "Hardcore" settings such as Hardware Sprite Limit enforcing, GBA LCD Color Correction matrix, Fast-Forwarding, and manual Save Type override.
 
 ## 🗺️ Development Roadmap (What's Missing)
 To achieve a fully complete and accurate GBA emulator, the following features and systems still need to be implemented:
 - **Cycle-Accurate Timings:** Implementing Memory Waitstates and CPU Prefetch Buffer simulation.
 - **Accurate DMA:** Stalling the CPU correctly during DMA transfers rather than executing them instantly.
-- **Full APU (Audio):** Complete implementation of PSG channels 1-4 (Square, Wave, Noise) and accurate DirectSound mixing.
-- **Advanced PPU Features:** Color Special Effects (Alpha Blending, Fade in/out), Window clipping for OBJs, and Mosaic effects.
 - **Game Saves & RTC:** Real Time Clock (RTC) for games like Pokémon (Hardware saves are already implemented!).
 - **Input:** Gamepad/Controller support.
 
