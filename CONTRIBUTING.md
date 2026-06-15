@@ -2,15 +2,25 @@
 
 First off, thank you for considering contributing to VB-GBA-HelpWanted! It's people like you that make open-source projects great.
 
-## How Can I Help?
+## 🗺️ Development Roadmap & Areas to Help
 
-We have a lot of work ahead of us to make this a fully functional emulator. Here are some key areas where you can jump in:
+We have made massive progress, implementing core CPU execution, PPU graphics, APU sound, save systems, and a complete debugger suite. However, to achieve a fully complete and accurate GBA emulator, we need help in the following areas:
 
-1. **CPU Emulation**: The core utilizes an ARM7TDMI processor. We still need to implement and test several ARM and THUMB instructions.
-2. **Graphics (PPU)**: The GBA PPU is complex. Help is needed to implement tile rendering, sprites (OAM), backgrounds, and windowing effects.
-3. **Audio (APU)**: Currently, audio emulation is non-existent. Implementing the Game Boy audio channels and direct sound channels would be amazing.
-4. **Testing**: Testing individual ROMs and identifying which instructions or memory accesses are failing.
-5. **Code Quality**: Refactoring, improving performance, and writing documentation.
+1. **Cycle-Accurate Timings & Memory Waitstates**:
+   - Simulation of sequential (S) and non-sequential (N) memory access cycles based on GBATEK.
+   - Simulation of the CPU Prefetch Buffer.
+2. **Accurate DMA Stalling**:
+   - Implementing proper CPU stalling during DMA transfers instead of running them instantly.
+3. **PPU (Graphics) Edge Cases**:
+   - Fixing specific rendering edge cases, such as custom ObjWindow clipping boundaries and blending behavior.
+4. **Real Time Clock (RTC)**:
+   - Implementing hardware RTC emulation for games like Pokémon (Ruby/Sapphire/Emerald) which rely on real-world time.
+5. **Input & Gamepad Support**:
+   - Adding gamepad/controller support via XInput or DirectInput.
+6. **Testing & Verification**:
+   - Testing GBA test suites (e.g., armwrestler, mGBA tests) and identifying failing instructions, timings, or memory accesses.
+7. **Performance & Refactoring**:
+   - Optimizing execution loops, profiling VB.NET rendering overhead, and general codebase cleanup.
 
 ## How to Submit Changes
 
@@ -23,3 +33,4 @@ We have a lot of work ahead of us to make this a fully functional emulator. Here
 ## Comunica con noi
 
 Sentiti libero di aprire una **Issue** o una **Discussion** (se abilitata) nel repository per discutere di cosa vorresti implementare o se hai bisogno di aiuto per capire l'architettura.
+
