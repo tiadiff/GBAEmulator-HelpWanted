@@ -202,7 +202,7 @@ Partial Public Class GBACore
             Return ' Real GBA BIOS does nothing for unknown SWIs
         End If
 
-        If UseBIOS AndAlso (id < 6 OrElse id > &HF) Then
+        If UseBIOS Then
             Dim retAddr = ExePC + If(ThumbMode, 2UI, 4UI)
             
             Dim oldCPSR = CPSR
@@ -248,6 +248,63 @@ Partial Public Class GBACore
         Select Case id
             Case &H0 ' SoftReset
                 ExePC = 0
+
+            Case &H1D ' SoundDriverVSync
+                ' An extremely short system call that resets the sound DMA.
+                ' The timing is extremely critical, so call this function immediately after the V-Blank.
+                ' We need to stop and restart the Sound DMAs (1 and 2).
+                If APU IsNot Nothing Then
+                    For ch = 1 To 2
+                        Dim ctrlOff = &HBA + (ch * 12)
+                        Dim ctrl = CUShort(IO(ctrlOff) Or (CUShort(IO(ctrlOff + 1)) << 8))
+                        If (ctrl And &H8000) <> 0 AndAlso ((ctrl >> 12) And 3) = 3 Then
+                            ' Reload DMASrc, DMADst, DMACurrentCount
+                            Dim base = CUInt(&HB0 + (ch * 12))
+                            DMASrc(ch) = Read32(&H4000000UI + base)
+                            DMADst(ch) = Read32(&H4000000UI + base + 4)
+                            Dim cnt As Integer = Read16(&H4000000UI + base + 8)
+                            If ch < 3 Then cnt = cnt And &H3FFF Else cnt = cnt And &HFFFF
+                            If cnt = 0 Then cnt = If(ch = 3, &H10000, &H4000)
+                            DMACurrentCount(ch) = cnt
+                        End If
+                    Next
+                End If
+
+            Case &H28 ' SoundDriverVSyncOff
+                ' Stop sound DMA
+                If APU IsNot Nothing Then
+                    For ch = 1 To 2
+                        Dim ctrlOff = &HBA + (ch * 12)
+                        Dim ctrl = CUShort(IO(ctrlOff) Or (CUShort(IO(ctrlOff + 1)) << 8))
+                        If (ctrl And &H8000) <> 0 AndAlso ((ctrl >> 12) And 3) = 3 Then
+                            Dim clr = CUShort(ctrl And &H7FFF)
+                            IO(ctrlOff) = CByte(clr And &HFF)
+                            IO(ctrlOff + 1) = CByte((clr >> 8) And &HFF)
+                        End If
+                    Next
+                End If
+
+            Case &H29 ' SoundDriverVSyncOn
+                ' Restart sound DMA
+                If APU IsNot Nothing Then
+                    For ch = 1 To 2
+                        Dim ctrlOff = &HBA + (ch * 12)
+                        Dim ctrl = CUShort(IO(ctrlOff) Or (CUShort(IO(ctrlOff + 1)) << 8))
+                        If (ctrl And &H8000) = 0 AndAlso ((ctrl >> 12) And 3) = 3 Then
+                            Dim set_en = CUShort(ctrl Or &H8000)
+                            IO(ctrlOff) = CByte(set_en And &HFF)
+                            IO(ctrlOff + 1) = CByte((set_en >> 8) And &HFF)
+                            ' Reload logic
+                            Dim base = CUInt(&HB0 + (ch * 12))
+                            DMASrc(ch) = Read32(&H4000000UI + base)
+                            DMADst(ch) = Read32(&H4000000UI + base + 4)
+                            Dim cnt As Integer = Read16(&H4000000UI + base + 8)
+                            If ch < 3 Then cnt = cnt And &H3FFF Else cnt = cnt And &HFFFF
+                            If cnt = 0 Then cnt = If(ch = 3, &H10000, &H4000)
+                            DMACurrentCount(ch) = cnt
+                        End If
+                    Next
+                End If
                     ThumbMode = False
                     R(15) = 4
 

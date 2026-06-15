@@ -1,19 +1,22 @@
-# Save States (Salvataggio Seriale) Tasks
+# Task: Implementazione Settings Avanzati
 
-- [x] 1. Serializzazione in `GBACore.vb`
-  - [x] Implementare `Public Sub SaveState(path As String)` utilizzando `BinaryWriter`.
-  - [x] Implementare `Public Sub LoadState(path As String)` utilizzando `BinaryReader`.
-  - [x] Assicurarsi di salvare e caricare tutte le variabili di stato e gli array RAM/Registri nello stesso ordine.
-
-- [x] 2. Aggiornamento UI in `Form1.Designer.vb`
-  - [x] Aggiungere `SaveStatesToolStripMenuItem` e `LoadStatesToolStripMenuItem` al menu `Emulation`.
-
-- [x] 3. Logica UI in `Form1.vb`
-  - [x] Popolare dinamicamente `SaveStatesToolStripMenuItem` con gli Slot da 1 a 9.
-  - [x] Creare metodo `UpdateLoadStatesMenu()` per mostrare solo gli slot esistenti.
-  - [x] Chiamare `UpdateLoadStatesMenu()` ogni volta che si carica una ROM o si salva uno stato.
-
-- [x] 4. Verification
-  - [x] Compilare il codice.
-  - [x] Aggiornare il walkthrough.
-  - [x] Fix Race Condition (EmulationThread Join) durante il salvataggio/caricamento.
+- [x] Modifica di `ConfigManager.vb`
+  - [x] Aggiungere `ColorCorrection As Boolean = False`
+  - [x] Aggiungere `EnforceSpriteLimit As Boolean = True`
+  - [x] Aggiungere `AudioChannelMask As Integer = &H3F`
+  - [x] Aggiungere `FastForwardMultiplier As Integer = 0`
+  - [x] Aggiungere `ForceSaveType As Integer = 0`
+  - [x] Aggiungere `KeyFastForward As Integer = Keys.Tab`
+- [x] Modifica di `SettingsForm.vb`
+  - [x] Aggiungere checkbox Color Correction e Sprite Limit
+  - [x] Aggiungere menu per i canali audio (Mixer).
+  - [x] Aggiungere menu per Force Save Type e Fast Forward Multiplier.
+  - [x] Aggiungere mappatura tasto Fast-Forward nella tab "Controlli".
+- [x] Modifica di `GBACore.APU.vb`
+  - [x] Applicare `AudioChannelMask` (Pulse 1, Pulse 2, Wave, Noise, DMA A, DMA B) nel metodo `MixAudio`.
+- [x] Modifica di `GBACore.Graphics.vb`
+  - [x] Implementare `EnforceSpriteLimit` (max 960 pixel sprites per riga).
+  - [x] Implementare `ColorCorrection` (Color Matrix GBA standard).
+- [x] Modifica di `Form1.vb`
+  - [x] Mappare il tasto Fast-Forward per rimuovere o alterare i delay dell'emulazione (`targetMs`).
+- [x] Modifica del gestore dei salvataggi in `GBACore.vb` (`LoadROM`) per usare `ForceSaveType`.

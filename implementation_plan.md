@@ -1,33 +1,38 @@
-# Implementation Plan: Save States (Salvataggio Seriale)
+# Goal Description
+Inserimento di impostazioni **Avanzate** nell'emulatore. Il focus è spostato su funzionalità per sviluppatori, speedrunner e appassionati dell'accuratezza o del modding.
 
-I Save States (salvataggi di stato) permettono di "congelare" l'intero emulatore in un momento esatto e ripristinarlo all'istante, bypassando il sistema di salvataggio interno del gioco.
+## Open Questions
+
+> [!QUESTION]
+> **Quali di questi Advanced Settings preferisci?**
+> Dal momento che cercavi qualcosa di più avanzato, ecco una lista di idee "hardcore" per l'emulatore:
+> 
+> 1. **GBA LCD Color Correction (Video):** I giochi GBA erano programmati con colori molto accesi perché lo schermo originale (AGS-001) era poco luminoso. Sui monitor moderni risultano troppo saturi. Questa opzione applicherebbe un filtro matematico (Color Matrix) per desaturare e correggere i colori, simulando il vero schermo LCD del Game Boy Advance.
+> 2. **Hardware Sprite Limit (Emulazione/Video):** Il GBA reale disegna un massimo di 10 sprite (OBJ) per linea, causando "sfarfallio" (flickering) nei giochi concitati. Aggiungiamo un toggle: se abilitato rispetta il limite hardware (accuratezza), se disabilitato permette sprite infiniti per linea eliminando i cali grafici tipici del GBA originale.
+> 3. **Audio Channel Muting (Audio Debug):** 6 Checkbox indipendenti per mutare/isolare i singoli canali hardware (Pulse 1, Pulse 2, Wave, Noise, DMA A, DMA B). Estremamente utile per chi studia le colonne sonore o debugga.
+> 4. **Fast-Forward Speed & Key (Sistema):** Definire la velocità del Fast-Forward (es. 2x, 4x, 10x, Uncapped) e assegnare un tasto dedicato sulla tastiera.
+> 5. **Force Save Type (Memoria):** Di default l'emulatore rileva il tipo di salvataggio (SRAM, EEPROM, Flash). Questa opzione avanzata forza il tipo in caso di ROM modificate, homebrew o hack che ingannano l'auto-detect.
+
+Sei d'accordo con queste proposte avanzate? C'è un ambito specifico (es. CPU, Memoria o Grafica) in cui vorresti spingerti ancora oltre?
 
 ## Proposed Changes
 
-### 1. Metodi di Serializzazione in `GBACore.vb`
-Per evitare file giganteschi (es. serializzare i 32MB della ROM), implementeremo un salvataggio binario *manuale e controllato* (custom serialization via `BinaryWriter`/`BinaryReader`) che salverà solo la RAM mutabile e i registri della CPU.
-Aggiungeremo due nuovi metodi a `GBACore`:
-- [NEW] `Public Sub SaveState(path As String)`: Questo metodo scriverà in sequenza nel file:
-  - Registri CPU (`UserRegs`, `FIQRegs`, ecc.)
-  - Registri di stato (`CPSR`, `WaitCnt`, `MemCtrl`, Timers, DMA)
-  - Memorie RAM (`WRAM`, `IRAM`, `VRAM`, `PaletteRAM`, `OAM`, `IO`)
-  - Memorie Cartuccia (`SRAM`, `EEPROMData`, `FlashData`)
-- [NEW] `Public Sub LoadState(path As String)`: Leggerà i dati nello stesso esatto ordine ripristinando l'intero stato dell'emulatore.
+---
 
-### 2. Gestione UI nel `Form1.vb`
-Nel `MenuStrip`, sotto il menu `Emulation`, aggiungeremo una nuova voce **Save States** con due sottomenu:
-- **Save State to Slot**: Mostrerà Slot 1..9. Cliccando su uno, verrà generato un file con estensione `.stX` (es. `gioco.st1`).
-- **Load State from Slot**: Mostrerà *dinamicamente* solo gli slot che effettivamente esistono su disco per la ROM attualmente in esecuzione.
+### [MODIFY] ConfigManager.vb
+Aggiunta alla classe `AppConfig` di:
+- `ColorCorrection As Boolean = False`
+- `EnforceSpriteLimit As Boolean = True`
+- `AudioChannelMask As Integer = &H3F` (Bitmask per i 6 canali)
+- `FastForwardMultiplier As Integer = 0` (0 = Uncapped, 2 = 200%, ecc.)
+- `ForceSaveType As Integer = 0` (0 = Auto, 1 = SRAM, 2 = EEPROM, 3 = FLASH64, 4 = FLASH128)
 
-Quando si carica un gioco, verrà letta la directory per trovare i file `[NomeRom].stX` esistenti e il menu `Load State` verrà popolato di conseguenza.
+### [MODIFY] SettingsForm.vb
+- Aggiunta di un nuovo tab **"Avanzate"** e integrazione delle opzioni nei tab esistenti:
+  - Tab "Video": Checkbox "GBA LCD Color Correction" e "Enforce Hardware Sprite Limit".
+  - Tab "Audio": Nuova sezione "Channel Mixer" con 6 Checkbox.
+  - Tab "Sistema": Menu a tendina per il Fast-Forward Speed e per il Save Type.
 
-## Open Questions
-> [!QUESTION]
-> Il salvataggio dello stato serializzerà la CPU, la memoria grafica e i registri I/O. Il processore audio (APU) è molto complesso: va bene se il suono viene ignorato nel Save State? Questo significa che quando caricherai uno stato, l'audio potrebbe essere muto per una frazione di secondo (finché il gioco non suona la nota successiva), ma manterrà i salvataggi leggeri, stabili e rapidissimi. Sei d'accordo?
-
-## Verification Plan
-1. Avvieremo un gioco.
-2. Metteremo in pausa o andremo in un punto specifico.
-3. Salveremo nello "Slot 1".
-4. Resetteremo la ROM o cambieremo area nel gioco.
-5. Caricheremo lo "Slot 1" per verificare il ripristino istantaneo e perfetto dell'immagine e dello stato.
+### [MODIFY] Core Modules (GBACore.PPU, GBACore.APU)
+- **APU:** Modificare il mix dell'audio moltiplicando il volume dei singoli canali in base al bit corrispondente in `Config.AudioChannelMask`.
+- **PPU:** Introdurre il limite di sprite nel renderizzatore scanline (`RenderOBJ`) interrotto se superati i cicli limite. Aggiungere il mapping LUT per la Color Correction nel master output se l'opzione è attiva.

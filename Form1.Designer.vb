@@ -167,14 +167,14 @@ Partial Class Form1
         ' 
         OptionsToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {ControlsToolStripMenuItem})
         OptionsToolStripMenuItem.Name = "OptionsToolStripMenuItem"
-        OptionsToolStripMenuItem.Size = New Size(61, 20)
-        OptionsToolStripMenuItem.Text = "Options"
+        OptionsToolStripMenuItem.Size = New Size(60, 20)
+        OptionsToolStripMenuItem.Text = "Opzioni"
         ' 
         ' ControlsToolStripMenuItem
         ' 
         ControlsToolStripMenuItem.Name = "ControlsToolStripMenuItem"
-        ControlsToolStripMenuItem.Size = New Size(128, 22)
-        ControlsToolStripMenuItem.Text = "Controls..."
+        ControlsToolStripMenuItem.Size = New Size(151, 22)
+        ControlsToolStripMenuItem.Text = "Impostazioni..."
         ' 
         ' ScreenBox
         ' 
@@ -239,7 +239,6 @@ Partial Class Form1
         Name = "Form1"
         StartPosition = FormStartPosition.CenterScreen
         Text = "VB.GBA Emulator"
-        TopMost = True
         MenuStrip1.ResumeLayout(False)
         MenuStrip1.PerformLayout()
         CType(ScreenBox, ComponentModel.ISupportInitialize).EndInit()

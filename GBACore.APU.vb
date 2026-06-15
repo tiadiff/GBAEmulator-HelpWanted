@@ -11,11 +11,20 @@ Partial Public Class GBACore
 
         Private Const SAMPLE_RATE As Integer = 44100
         Private Const CYCLES_PER_SAMPLE As Single = 16777216.0F / SAMPLE_RATE
+
         Private sampleCycleAccumulator As Single = 0
         Private fsCycleAccumulator As Integer = 0
         Private fsStep As Integer = 0
-        Private prevLeft As Single = 0
-        Private prevRight As Single = 0
+
+        ' Integratori per Anti-Aliasing (Boxcar Filter)
+        Private leftAccum As Single = 0
+        Private rightAccum As Single = 0
+        Private accumCycles As Single = 0
+
+        ' Filtro Passa-Alto (DC Blocker)
+        Private dcLeftIn As Single = 0, dcLeftOut As Single = 0
+        Private dcRightIn As Single = 0, dcRightOut As Single = 0
+        Private Const HPF_ALPHA As Single = 0.998F
 
         ' Registri globali
         Public SOUNDCNT_L As UShort
@@ -28,7 +37,7 @@ Partial Public Class GBACore
         Public FIFOB As New Queue(Of SByte)(32)
         Private FIFOA_Val As SByte = 0
         Private FIFOB_Val As SByte = 0
-        
+
         Private SampleBuffer As New List(Of Byte)(4096)
 
         ' Canali PSG
@@ -48,11 +57,43 @@ Partial Public Class GBACore
             WaveOut.Play()
         End Sub
 
+        Private _masterVolume As Single = 1.0F
+        Public Property MasterVolume As Single
+            Get
+                Return _masterVolume
+            End Get
+            Set(value As Single)
+                _masterVolume = value
+                If WaveOut IsNot Nothing Then
+                    Try
+                        WaveOut.Volume = _masterVolume
+                    Catch
+                    End Try
+                End If
+            End Set
+        End Property
+
         Public Sub StopAudio()
             If WaveOut IsNot Nothing Then
                 WaveOut.Stop()
                 WaveOut.Dispose()
                 WaveOut = Nothing
+            End If
+        End Sub
+
+        Public Sub PauseAudio()
+            If WaveOut IsNot Nothing AndAlso WaveOut.PlaybackState = PlaybackState.Playing Then
+                WaveOut.Pause()
+            End If
+        End Sub
+
+        Public Sub ResumeAudio()
+            If WaveOut IsNot Nothing AndAlso WaveOut.PlaybackState = PlaybackState.Paused Then
+                WaveOut.Play()
+            ElseIf WaveOut Is Nothing Then
+                WaveOut = New WaveOutEvent()
+                WaveOut.Init(WaveProvider)
+                WaveOut.Play()
             End If
         End Sub
 
@@ -66,12 +107,17 @@ Partial Public Class GBACore
             SOUNDCNT_X = 0
             SOUNDBIAS = &H200
             If WaveProvider IsNot Nothing Then WaveProvider.ClearBuffer()
+
             sampleCycleAccumulator = 0
             fsCycleAccumulator = 0
             fsStep = 0
-            prevLeft = 0
-            prevRight = 0
-            
+
+            leftAccum = 0
+            rightAccum = 0
+            accumCycles = 0
+            dcLeftIn = 0 : dcLeftOut = 0
+            dcRightIn = 0 : dcRightOut = 0
+
             Pulse1.Reset()
             Pulse2.Reset()
             Wave.Reset()
@@ -94,42 +140,48 @@ Partial Public Class GBACore
             Next
         End Sub
 
+        Public Sub ResetFIFOA()
+            FIFOA.Clear()
+            FIFOA_Val = 0
+        End Sub
+
+        Public Sub ResetFIFOB()
+            FIFOB.Clear()
+            FIFOB_Val = 0
+        End Sub
+
         Public Sub TriggerFIFOA()
-            If FIFOA.Count > 0 Then FIFOA_Val = FIFOA.Dequeue() Else FIFOA_Val = 0
+            If FIFOA.Count > 0 Then
+                FIFOA_Val = FIFOA.Dequeue()
+            End If
             If FIFOA.Count <= 16 Then
-                Core.CheckPendingDMAs(3, 1)
-                Core.CheckPendingDMAs(3, 2)
+                Core.TriggerSoundDMA(&H40000A0UI)
             End If
         End Sub
 
         Public Sub TriggerFIFOB()
-            If FIFOB.Count > 0 Then FIFOB_Val = FIFOB.Dequeue() Else FIFOB_Val = 0
+            If FIFOB.Count > 0 Then
+                FIFOB_Val = FIFOB.Dequeue()
+            End If
             If FIFOB.Count <= 16 Then
-                Core.CheckPendingDMAs(3, 1)
-                Core.CheckPendingDMAs(3, 2)
+                Core.TriggerSoundDMA(&H40000A4UI)
             End If
         End Sub
 
         Public Sub StepAPU(cycles As Integer)
             If (SOUNDCNT_X And &H80) = 0 Then Return
 
-            sampleCycleAccumulator += cycles
-            While sampleCycleAccumulator >= CYCLES_PER_SAMPLE
-                sampleCycleAccumulator -= CYCLES_PER_SAMPLE
-                
-                ' Step canali PSG di un "campione" temporale
-                Pulse1.StepChannel()
-                Pulse2.StepChannel()
-                Wave.StepChannel()
-                Noise.StepChannel()
-                
-                GenerateSample()
-            End While
+            ' 1. Step dei canali PSG esattamente secondo i cicli hardware
+            Pulse1.StepChannel(cycles)
+            Pulse2.StepChannel(cycles)
+            Wave.StepChannel(cycles)
+            Noise.StepChannel(cycles)
 
+            ' 2. Sequenziatore a 512 Hz (Sweep, Length, Envelope)
             fsCycleAccumulator += cycles
             While fsCycleAccumulator >= 32768
                 fsCycleAccumulator -= 32768
-                
+
                 If fsStep Mod 2 = 0 Then
                     Pulse1.ClockLength()
                     Pulse2.ClockLength()
@@ -148,34 +200,60 @@ Partial Public Class GBACore
                 End If
                 fsStep = (fsStep + 1) And 7
             End While
+
+            ' 3. Ottieni lo stato istantaneo dell'audio
+            Dim curL As Single = 0
+            Dim curR As Single = 0
+            MixAudio(curL, curR)
+
+            ' 4. Accumula i campioni (Boxcar Integrator) per evitare l'Aliasing
+            leftAccum += curL * cycles
+            rightAccum += curR * cycles
+            accumCycles += cycles
+            sampleCycleAccumulator += cycles
+
+            ' 5. Genera i campioni a 44100 Hz quando si è accumulato abbastanza tempo
+            While sampleCycleAccumulator >= CYCLES_PER_SAMPLE
+                Dim overage = sampleCycleAccumulator - CYCLES_PER_SAMPLE
+                Dim validCycles = accumCycles - overage
+                If validCycles <= 0 Then validCycles = 1 ' Fallback di sicurezza
+
+                ' Media proporzionale (Sottraiamo la parte eccedente che appartiene al campione successivo)
+                Dim avgL = (leftAccum - (curL * overage)) / validCycles
+                Dim avgR = (rightAccum - (curR * overage)) / validCycles
+
+                OutputSampleToNAudio(avgL, avgR)
+
+                ' Manteniamo l'eccedenza per il prossimo campionamento
+                leftAccum = curL * overage
+                rightAccum = curR * overage
+                accumCycles = overage
+                sampleCycleAccumulator = overage
+            End While
         End Sub
 
-        Private Sub GenerateSample()
-            ' Costruisci i volumi dei canali
+        Private Sub MixAudio(ByRef left As Single, ByRef right As Single)
+            ' Costruisci i volumi dei canali FIFO
             Dim dsVolA = If((SOUNDCNT_H And 4) <> 0, 1.0F, 0.5F)
             Dim dsVolB = If((SOUNDCNT_H And 8) <> 0, 1.0F, 0.5F)
 
-            Dim outA = FIFOA_Val * dsVolA
-            Dim outB = FIFOB_Val * dsVolB
+            Dim mask = ConfigManager.CurrentConfig.AudioChannelMask
+            Dim outA = If((mask And 16) <> 0, FIFOA_Val * dsVolA * 4.0F, 0.0F)
+            Dim outB = If((mask And 32) <> 0, FIFOB_Val * dsVolB * 4.0F, 0.0F)
 
-            Dim left As Single = 0
-            Dim right As Single = 0
-
-            ' Routing FIFO A
+            ' Routing FIFO
             If (SOUNDCNT_H And &H100) <> 0 Then right += outA
             If (SOUNDCNT_H And &H200) <> 0 Then left += outA
-            
-            ' Routing FIFO B
             If (SOUNDCNT_H And &H1000) <> 0 Then right += outB
             If (SOUNDCNT_H And &H2000) <> 0 Then left += outB
 
-            ' Routing PSG
+            ' Volume PSG Ratio
             Dim psgVolRatio As Single = 0.25F
             Select Case SOUNDCNT_H And 3
                 Case 0 : psgVolRatio = 0.25F
                 Case 1 : psgVolRatio = 0.5F
                 Case 2 : psgVolRatio = 1.0F
-                Case 3 : psgVolRatio = 0.25F ' Proibito, fallback
+                Case 3 : psgVolRatio = 0.25F
             End Select
 
             Dim leftMasterVol = (SOUNDCNT_L >> 4) And 7
@@ -183,12 +261,13 @@ Partial Public Class GBACore
 
             Dim psgL As Single = 0
             Dim psgR As Single = 0
-            
-            Dim outP1 = Pulse1.GetSample() * 8.0F
-            Dim outP2 = Pulse2.GetSample() * 8.0F
-            Dim outWv = Wave.GetSample() * 8.0F
-            Dim outNs = Noise.GetSample() * 8.0F
 
+            Dim outP1 = If((mask And 1) <> 0, Pulse1.GetSample() * 8.5F, 0.0F)
+            Dim outP2 = If((mask And 2) <> 0, Pulse2.GetSample() * 8.5F, 0.0F)
+            Dim outWv = If((mask And 4) <> 0, Wave.GetSample() * 8.5F, 0.0F)
+            Dim outNs = If((mask And 8) <> 0, Noise.GetSample() * 8.5F, 0.0F)
+
+            ' Routing PSG
             If (SOUNDCNT_L And &H100) <> 0 Then psgR += outP1
             If (SOUNDCNT_L And &H200) <> 0 Then psgR += outP2
             If (SOUNDCNT_L And &H400) <> 0 Then psgR += outWv
@@ -201,14 +280,28 @@ Partial Public Class GBACore
 
             left += (psgL * psgVolRatio * (leftMasterVol / 7.0F))
             right += (psgR * psgVolRatio * (rightMasterVol / 7.0F))
+        End Sub
 
-            ' LPF (Low-Pass Filter) Analogico
-            prevLeft = prevLeft * 0.5F + left * 0.5F
-            prevRight = prevRight * 0.5F + right * 0.5F
+        ' Variabili per il Filtro Passa-Basso (Simula il filtro analogico del GBA a ~4kHz)
+        Private lpLeftOut As Single = 0
+        Private lpRightOut As Single = 0
+        Private Const LPF_ALPHA As Single = 0.45F ' Approssimazione per fc=4kHz a 44100Hz
 
-            ' Converti in 16-bit
-            Dim l_sample = CInt(prevLeft * 32.0F)
-            Dim r_sample = CInt(prevRight * 32.0F)
+        Private Sub OutputSampleToNAudio(left As Single, right As Single)
+            ' Filtro Passa-Alto (Rimuove il Bias DC per evitare clipping catastrofici)
+            dcLeftOut = left - dcLeftIn + HPF_ALPHA * dcLeftOut
+            dcLeftIn = left
+
+            dcRightOut = right - dcRightIn + HPF_ALPHA * dcRightOut
+            dcRightIn = right
+
+            ' Filtro Passa-Basso (Rimuove il fischio e aliasing ad alta frequenza del PWM e sample rate bassi)
+            lpLeftOut = lpLeftOut + LPF_ALPHA * (dcLeftOut - lpLeftOut)
+            lpRightOut = lpRightOut + LPF_ALPHA * (dcRightOut - lpRightOut)
+
+            ' Scalatura in 16-bit PCM (+/- 32767)
+            Dim l_sample = CInt(lpLeftOut * 21.0F)
+            Dim r_sample = CInt(lpRightOut * 21.0F)
 
             If l_sample < -32768 Then l_sample = -32768
             If l_sample > 32767 Then l_sample = 32767
@@ -228,6 +321,20 @@ Partial Public Class GBACore
             End If
         End Sub
 
+        Public Sub ResetPSGRegisters()
+            SOUNDCNT_L = 0
+            SOUNDCNT_H = 0
+            Pulse1.NR10 = 0
+            Pulse1.NR11 = 0 : Pulse1.NR12 = 0 : Pulse1.NR13 = 0 : Pulse1.NR14 = 0
+            Pulse2.NR11 = 0 : Pulse2.NR12 = 0 : Pulse2.NR13 = 0 : Pulse2.NR14 = 0
+            Wave.NR30 = 0 : Wave.NR31 = 0 : Wave.NR32 = 0 : Wave.NR33 = 0 : Wave.NR34 = 0
+            Noise.NR41 = 0 : Noise.NR42 = 0 : Noise.NR43 = 0 : Noise.NR44 = 0
+            Pulse1.Reset()
+            Pulse2.Reset()
+            Wave.Reset()
+            Noise.Reset()
+        End Sub
+
         ' ===============================
         ' Classi interne PSG
         ' ===============================
@@ -240,19 +347,18 @@ Partial Public Class GBACore
             Private EnvVol As Integer = 0
             Private EnvTimer As Integer = 0
             Private Enable As Boolean = False
-            
+
             ' Sweep & Length
             Private SweepTimer As Integer = 0
             Private SweepShadowFreq As Integer = 0
             Private SweepEnable As Boolean = False
             Private LengthCounter As Integer = 0
             
-            ' Registri simulati per brevità (in GBACore.Memory intercetteremo le scritture verso questi canali)
-            Public NR10 As UShort ' Sweep (solo Pulse 1)
-            Public NR11 As UShort ' Duty, Length
-            Public NR12 As UShort ' Env
-            Public NR13 As UShort ' Freq L
-            Public NR14 As UShort ' Freq H / Control
+            Public NR10 As UShort
+            Public NR11 As UShort
+            Public NR12 As UShort
+            Public NR13 As UShort
+            Public NR14 As UShort
 
             Private ReadOnly DutyPatterns()() As Integer = {
                 New Integer() {0, 0, 0, 0, 0, 0, 0, 1},
@@ -293,14 +399,13 @@ Partial Public Class GBACore
                 End If
             End Sub
 
-            Public Sub StepChannel()
+            Public Sub StepChannel(cycles As Integer)
                 If Not Enable Then Return
-                ' Timer frequenza
-                FreqTimer -= (16777216 \ SAMPLE_RATE)
-                If FreqTimer <= 0 Then
+                FreqTimer -= cycles
+                While FreqTimer <= 0
                     FreqTimer += (2048 - FreqReg) * 4
                     DutyPos = (DutyPos + 1) And 7
-                End If
+                End While
             End Sub
 
             Public Sub ClockEnvelope()
@@ -330,7 +435,7 @@ Partial Public Class GBACore
                     If newFreq <= 2047 AndAlso (NR10 And 7) > 0 Then
                         FreqReg = newFreq
                         SweepShadowFreq = newFreq
-                        CalculateSweepFreq() ' Calculate again for overflow check
+                        CalculateSweepFreq()
                     End If
                 End If
             End Sub
@@ -340,7 +445,7 @@ Partial Public Class GBACore
                 Dim isSub = (NR10 And 8) <> 0
                 Dim newFreq = SweepShadowFreq >> shift
                 If isSub Then newFreq = SweepShadowFreq - newFreq Else newFreq = SweepShadowFreq + newFreq
-                If newFreq > 2047 Then Enable = False ' Overflow disables channel
+                If newFreq > 2047 Then Enable = False
                 Return newFreq
             End Function
 
@@ -402,14 +507,14 @@ Partial Public Class GBACore
                 LengthCounter = 256 - (NR31 And &HFF)
             End Sub
 
-            Public Sub StepChannel()
+            Public Sub StepChannel(cycles As Integer)
                 If Not Enable Then Return
-                FreqTimer -= (16777216 \ SAMPLE_RATE)
-                If FreqTimer <= 0 Then
+                FreqTimer -= cycles
+                While FreqTimer <= 0
                     FreqTimer += (2048 - FreqReg) * 2
                     Dim maxPos = If((NR30 And &H20) <> 0, 64, 32)
                     WavePos = (WavePos + 1) Mod maxPos
-                End If
+                End While
             End Sub
 
             Public Sub ClockLength()
@@ -423,19 +528,26 @@ Partial Public Class GBACore
 
             Public Function GetSample() As Single
                 If Not Enable Then Return 0
-                Dim volShift = (NR32 >> 13) And 3
-                If volShift = 0 Then Return 0 ' Muto
-                Dim shift = If(volShift = 1, 0, If(volShift = 2, 1, 2)) ' 100%, 50%, 25%
-                If (NR32 And &H8000) <> 0 Then shift = 3 ' 75% volume
-
+                
                 Dim twoBanks = (NR30 And &H20) <> 0
                 Dim cpuBank = If((NR30 And &H40) <> 0, 1, 0)
                 
                 Dim playBank = If(twoBanks, (WavePos \ 32) Mod 2, 1 - cpuBank)
                 Dim byteIdx = (WavePos Mod 32) \ 2
                 Dim nibble = If((WavePos And 1) = 0, WaveRAM(playBank)(byteIdx) >> 4, WaveRAM(playBank)(byteIdx) And &HF)
-                Dim sample = nibble - 8 ' Centra sullo zero
-                Return CSng(sample >> shift)
+                Dim sample = nibble - 8
+                Dim sampleOutput As Single = sample
+
+                If (NR32 And &H8000) <> 0 Then
+                    sampleOutput *= 0.75F
+                Else
+                    Dim volShift = (NR32 >> 13) And 3
+                    If volShift = 0 Then Return 0
+                    Dim shift = If(volShift = 1, 0, If(volShift = 2, 1, 2))
+                    sampleOutput = CSng(sampleOutput / (1 << shift))
+                End If
+
+                Return sampleOutput
             End Function
         End Class
 
@@ -472,10 +584,10 @@ Partial Public Class GBACore
                 FreqTimer = baseFreq << s
             End Sub
 
-            Public Sub StepChannel()
+            Public Sub StepChannel(cycles As Integer)
                 If Not Enable Then Return
-                FreqTimer -= (16777216 \ SAMPLE_RATE)
-                If FreqTimer <= 0 Then
+                FreqTimer -= cycles
+                While FreqTimer <= 0
                     Dim r = NR43 And 7
                     Dim s = (NR43 >> 4) And &HF
                     Dim baseFreq = If(r = 0, 8, r * 16)
@@ -484,11 +596,14 @@ Partial Public Class GBACore
                     Dim bit0 = LFSR And 1
                     Dim bit1 = (LFSR >> 1) And 1
                     Dim newBit = bit0 Xor bit1
-                    LFSR = (LFSR >> 1) Or (newBit << 14)
+                    
+                    LFSR = LFSR >> 1
+                    LFSR = LFSR Or (newBit << 14)
+                    
                     If (NR43 And 8) <> 0 Then
                         LFSR = (LFSR And Not &H40) Or (newBit << 6)
                     End If
-                End If
+                End While
             End Sub
 
             Public Sub ClockEnvelope()

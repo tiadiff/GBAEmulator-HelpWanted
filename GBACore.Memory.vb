@@ -7,7 +7,7 @@ Partial Public Class GBACore
         Select Case baseAddr >> 24
             Case &H0
                 If address < BIOS.Length Then
-                    If R(15) >= &H4000 Then Return 0
+                    If ExePC >= &H4000 Then Return 0
                     val = CUInt(BIOS(baseAddr)) Or (CUInt(BIOS(baseAddr + 1)) << 8) Or (CUInt(BIOS(baseAddr + 2)) << 16) Or (CUInt(BIOS(baseAddr + 3)) << 24)
                 End If
             Case &H2 : Dim a = CInt(baseAddr And &H3FFFF) : val = CUInt(WRAM(a)) Or (CUInt(WRAM(a + 1)) << 8) Or (CUInt(WRAM(a + 2)) << 16) Or (CUInt(WRAM(a + 3)) << 24)
@@ -40,7 +40,7 @@ Partial Public Class GBACore
         Select Case address >> 24
             Case &H0
                 If address < BIOS.Length Then
-                    If R(15) >= &H4000 Then Return 0
+                    If ExePC >= &H4000 Then Return 0
                     Return CUShort(BIOS(address) Or (CUShort(BIOS(address + 1)) << 8))
                 End If
             Case &H2 : Dim a = CInt(address And &H3FFFF) : Return CUShort(WRAM(a) Or (CUShort(WRAM(a + 1)) << 8))
@@ -103,7 +103,7 @@ Partial Public Class GBACore
         Select Case address >> 24
             Case &H0
                 If address < BIOS.Length Then
-                    If R(15) >= &H4000 Then Return 0
+                    If ExePC >= &H4000 Then Return 0
                     Return BIOS(CInt(address))
                 End If
             Case &H2 : Return WRAM(CInt(address And &H3FFFF))
@@ -213,14 +213,31 @@ Partial Public Class GBACore
                         If (oldCtrl And &H80) = 0 AndAlso (value And &H80) <> 0 Then
                             TM_Counter(tIdx) = TM_Reload(tIdx)
                             TM_Ticks(tIdx) = 0
+                            TM_JustStarted(tIdx) = True
                         End If
+
                     End If
                     Return
                 End If
                 ' Master Sound Controls
                 If off = &H80 Then If APU IsNot Nothing Then APU.SOUNDCNT_L = value
-                If off = &H82 Then If APU IsNot Nothing Then APU.SOUNDCNT_H = value
-                If off = &H84 Then If APU IsNot Nothing Then APU.SOUNDCNT_X = (APU.SOUNDCNT_X And Not &H80US) Or (value And &H80US)
+                If off = &H82 Then 
+                    If APU IsNot Nothing Then 
+                        APU.SOUNDCNT_H = value
+                        If (value And &H800) <> 0 Then APU.ResetFIFOA()
+                        If (value And &H8000) <> 0 Then APU.ResetFIFOB()
+                        APU.SOUNDCNT_H = APU.SOUNDCNT_H And Not &H8800US ' Clear reset bits
+                    End If
+                End If
+                If off = &H84 Then 
+                    If APU IsNot Nothing Then 
+                        Dim oldX = APU.SOUNDCNT_X
+                        APU.SOUNDCNT_X = (APU.SOUNDCNT_X And Not &H80US) Or (value And &H80US)
+                        If (oldX And &H80) <> 0 AndAlso (value And &H80) = 0 Then
+                            APU.ResetPSGRegisters()
+                        End If
+                    End If
+                End If
                 If off = &H88 Then If APU IsNot Nothing Then APU.SOUNDBIAS = value
 
                 ' Pulse 1
@@ -384,6 +401,12 @@ Partial Public Class GBACore
                 Dim base = CUInt(&HB0 + (ch * 12))
                 DMASrc(ch) = Read32(&H4000000UI + base)
                 DMADst(ch) = Read32(&H4000000UI + base + 4)
+                
+                Dim cnt As Integer = Read16(&H4000000UI + base + 8)
+                If ch < 3 Then cnt = cnt And &H3FFF Else cnt = cnt And &HFFFF
+                If cnt = 0 Then cnt = If(ch = 3, &H10000, &H4000)
+                DMACurrentCount(ch) = cnt
+                
                 Dim startTiming = (value >> 12) And 3
                 If startTiming = 0 Then RunDMA(ch, value)
             End If
@@ -404,37 +427,47 @@ Partial Public Class GBACore
         Next
     End Sub
 
+    Public Sub TriggerSoundDMA(dstAddr As UInteger)
+        For ch = 1 To 2
+            Dim ctrlOff = &HBA + (ch * 12)
+            Dim ctrl = CUShort(IO(ctrlOff) Or (CUShort(IO(ctrlOff + 1)) << 8))
+            If (ctrl And &H8000) <> 0 Then
+                Dim startTiming = (ctrl >> 12) And 3
+                If startTiming = 3 Then
+                    If (DMADst(ch) And &HFFFFUI) = (dstAddr And &HFFFFUI) Then
+                        RunDMA(ch, ctrl)
+                    End If
+                End If
+            End If
+        Next
+    End Sub
+
     Private Sub RunDMA(ch As Integer, ctrl As UShort)
         Dim base = CUInt(&HB0 + (ch * 12))
         Dim src = DMASrc(ch)
         Dim dst = DMADst(ch)
-        Dim cnt As Integer = Read16(&H4000000UI + base + 8)
-        If ch < 3 Then cnt = cnt And &H3FFF Else cnt = cnt And &HFFFF
-        If cnt = 0 Then cnt = If(ch = 3, &H10000, &H4000)
         
-        ' Force cnt = 4 for Sound FIFO DMA (DMA1/DMA2 with startTiming = 3)
-        If (ch = 1 OrElse ch = 2) AndAlso ((ctrl >> 12) And 3) = 3 Then
-            cnt = 4
-        End If
+        Dim isSoundDMA = (ch = 1 OrElse ch = 2) AndAlso ((ctrl >> 12) And 3) = 3
+        Dim transferCount = If(isSoundDMA, 4, DMACurrentCount(ch))
         
         If ch = 3 AndAlso CartBackupType = BackupMediaType.EEPROM Then
             If (dst >> 24) = &HD Then
                 ' DMA to EEPROM (Command)
-                Dim addrBits = If(cnt <= 10 OrElse (cnt > 17 AndAlso cnt <= 74), 6, 14)
-                Dim stream(cnt - 1) As Byte
+                Dim addrBits = If(transferCount <= 10 OrElse (transferCount > 17 AndAlso transferCount <= 74), 6, 14)
+                Dim stream(transferCount - 1) As Byte
                 Dim s = src
-                For i As Integer = 0 To cnt - 1
+                For i As Integer = 0 To transferCount - 1
                     stream(i) = CByte(Read16(s) And 1)
                     s += 2
                 Next
-                If cnt >= 2 AndAlso stream(0) = 1 AndAlso stream(1) = 1 Then
+                If transferCount >= 2 AndAlso stream(0) = 1 AndAlso stream(1) = 1 Then
                     ' Read Request
                     Dim addr = 0
                     For i As Integer = 0 To addrBits - 1
                         addr = (addr << 1) Or stream(2 + i)
                     Next
                     EEPROMAddress = addr * 8
-                ElseIf cnt >= 2 AndAlso stream(0) = 1 AndAlso stream(1) = 0 Then
+                ElseIf transferCount >= 2 AndAlso stream(0) = 1 AndAlso stream(1) = 0 Then
                     ' Write Request
                     Dim addr = 0
                     For i As Integer = 0 To addrBits - 1
@@ -446,7 +479,7 @@ Partial Public Class GBACore
                         For i As Integer = 0 To 7
                             bval = (bval << 1) Or stream(2 + addrBits + (b * 8) + i)
                         Next
-                        data(b) = CByte(bval)
+                        data(b) = CByte(bval And &HFF)
                     Next
                     Array.Copy(data, 0, EEPROMData, addr * 8, 8)
                     BatteryModified = True
@@ -471,7 +504,7 @@ Partial Public Class GBACore
                     Next
                 Next
                 Dim d = dst
-                For i As Integer = 0 To cnt - 1
+                For i As Integer = 0 To transferCount - 1
                     Write16(d, If(i < 68, stream(i), CByte(0)))
                     d += 2
                 Next
@@ -491,17 +524,18 @@ Partial Public Class GBACore
         Dim dstM = (ctrl And &H60) >> 5
         Dim srcM = (ctrl And &H180) >> 7
         
-        ' Force Fixed Destination for Sound FIFO DMA
-        If (ch = 1 OrElse ch = 2) AndAlso ((ctrl >> 12) And 3) = 3 Then
+        If isSoundDMA Then
             dstM = 2
+            is32 = True
         End If
         
         Dim stepSz = If(is32, 4UI, 2UI)
-        For i As Integer = 0 To cnt - 1
+        For i As Integer = 0 To transferCount - 1
             If is32 Then Write32(dst, Read32(src)) Else Write16(dst, Read16(src))
             Select Case srcM
                 Case 0 : src += stepSz
                 Case 1 : src -= stepSz
+                Case 3 : src += stepSz ' Prohibited usually, but behaves as inc
             End Select
             Select Case dstM
                 Case 0, 3 : dst += stepSz
@@ -512,19 +546,31 @@ Partial Public Class GBACore
         DMASrc(ch) = src
         DMADst(ch) = dst
 
-        Dim repeat = (ctrl And &H200) <> 0
-        If repeat AndAlso ((ctrl >> 12) And 3) <> 0 Then
-            If dstM = 3 Then DMADst(ch) = Read32(&H4000000UI + base + 4) ' Reload Dst
-        Else
-            Dim clr = CUShort(ctrl And &H7FFF)
-            IO(base + 10) = CByte(clr And &HFF) : IO(base + 11) = CByte((clr >> 8) And &HFF)
-        End If
 
-        If (ctrl And &H4000) <> 0 Then
-            Dim IF_reg = Read16(&H4000202)
-            Dim new_IF = IF_reg Or CUShort(1 << (8 + ch))
-            IO(&H202) = CByte(new_IF And &HFF)
-            IO(&H203) = CByte(new_IF >> 8)
+
+        DMACurrentCount(ch) -= transferCount
+        Dim finished = (DMACurrentCount(ch) <= 0)
+
+        If finished Then
+            Dim repeat = (ctrl And &H200) <> 0
+            If repeat AndAlso ((ctrl >> 12) And 3) <> 0 Then
+                Dim reloadCnt = Read16(&H4000000UI + base + 8)
+                If ch < 3 Then reloadCnt = reloadCnt And &H3FFF Else reloadCnt = reloadCnt And &HFFFF
+                If reloadCnt = 0 Then reloadCnt = If(ch = 3, &H10000, &H4000)
+                DMACurrentCount(ch) = reloadCnt
+                
+                If dstM = 3 Then DMADst(ch) = Read32(&H4000000UI + base + 4) ' Reload Dst
+            Else
+                Dim clr = CUShort(ctrl And &H7FFF)
+                IO(base + 10) = CByte(clr And &HFF) : IO(base + 11) = CByte((clr >> 8) And &HFF)
+            End If
+            
+            If (ctrl And &H4000) <> 0 Then
+                Dim IF_reg = Read16(&H4000202)
+                Dim new_IF = IF_reg Or CUShort(1 << (8 + ch))
+                IO(&H202) = CByte(new_IF And &HFF)
+                IO(&H203) = CByte(new_IF >> 8)
+            End If
         End If
     End Sub
 End Class

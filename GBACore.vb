@@ -108,6 +108,11 @@ Private ExePC As UInteger
 Public IsRunning As Boolean = False
 Public UseBIOS As Boolean = False
 
+Public Breakpoints As New HashSet(Of UInteger)
+Public DebuggerPaused As Boolean = False
+Public IgnoreBreakpointOnce As Boolean = False
+Public Event BreakpointHit As EventHandler
+
 Public HLECounter As Integer = 0
 Public HLEStates As New Dictionary(Of UInteger, HLEState)
 
@@ -128,14 +133,16 @@ Public WaitCnt As UShort = &H0
 Public MemCtrl As UInteger = &H0D000020UI
 
 ' Hardware Timers
-Private TM_Counter(3) As UShort
-Private TM_Reload(3) As UShort
-Private TM_Control(3) As UShort
-Private TM_Ticks(3) As Integer
+    Public TM_Counter(3) As UShort
+    Public TM_Reload(3) As UShort
+    Public TM_Control(3) As UShort
+    Public TM_Ticks(3) As Integer
+    Public TM_JustStarted(3) As Boolean
 
 ' Internal DMA Registers
-Private DMASrc(3) As UInteger
-Private DMADst(3) As UInteger
+    Public DMASrc(3) As UInteger
+    Public DMADst(3) As UInteger
+    Public DMACurrentCount(3) As Integer
 
 Public Property R(index As Integer) As UInteger
     Get
@@ -436,12 +443,30 @@ Public Sub ResetCore()
     APU.Reset()
 End Sub
 
+    Private Shared ReadOnly ValidNintendoLogo As Byte() = {
+        &H24, &HFF, &HAE, &H51, &H69, &H9A, &HA2, &H21, &H3D, &H84, &H82, &H0A, &H84, &HE4, &H09, &HAD,
+        &H11, &H24, &H8B, &H98, &HC0, &H81, &H7F, &H21, &HA3, &H52, &HBE, &H19, &H93, &H09, &HCE, &H20,
+        &H10, &H46, &H4A, &H4A, &HF8, &H27, &H31, &HEC, &H58, &HC7, &HE8, &H33, &H82, &HE3, &HCE, &HBF,
+        &H85, &HF4, &HDF, &H94, &HCE, &H4B, &H09, &HC1, &H94, &H56, &H8A, &HC0, &H13, &H72, &HA7, &HFC,
+        &H9F, &H84, &H4D, &H73, &HA3, &HCA, &H9A, &H61, &H58, &H97, &HA3, &H27, &HFC, &H03, &H98, &H76,
+        &H23, &H1D, &HC7, &H61, &H03, &H04, &HAE, &H56, &HBF, &H38, &H84, &H00, &H40, &HA7, &H0E, &HFD,
+        &HFF, &H52, &HFE, &H03, &H6F, &H95, &H30, &HF1, &H97, &HFB, &HC0, &H85, &H60, &HD6, &H80, &H25,
+        &HA9, &H63, &HBE, &H03, &H01, &H4E, &H38, &HE2, &HF9, &HA2, &H34, &HFF, &HBB, &H3E, &H03, &H44,
+        &H78, &H00, &H90, &HCB, &H88, &H11, &H3A, &H94, &H65, &HC0, &H7C, &H63, &H87, &HF0, &H3C, &HAF,
+        &HD6, &H25, &HE4, &H8B, &H38, &H0A, &HAC, &H72, &H21, &HD4, &HF8, &H07
+    }
+
 Public Sub LoadROM(path As String)
     If File.Exists(path) Then
         ResetCore()
         Dim bytes = File.ReadAllBytes(path)
         Array.Clear(ROM, 0, ROM.Length)
         Array.Copy(bytes, ROM, Math.Min(bytes.Length, ROM.Length))
+
+        ' Patch the Nintendo Logo in the ROM so the BIOS always successfully boots it
+        If ROM.Length >= 160 Then
+            Array.Copy(ValidNintendoLogo, 0, ROM, 4, 156)
+        End If
 
         If ROM.Length >= 192 Then
             GameTitle = System.Text.Encoding.ASCII.GetString(ROM, &HA0, 12).TrimEnd(Chr(0))
@@ -456,7 +481,17 @@ Public Sub LoadROM(path As String)
             HeaderChecksumValid = (chk = ROM(&HBD))
         End If
 
-        CartBackupType = BackupMediaType.None
+        Dim forceSave = ConfigManager.CurrentConfig.ForceSaveType
+        If forceSave = 1 Then
+            CartBackupType = BackupMediaType.SRAM
+        ElseIf forceSave = 2 Then
+            CartBackupType = BackupMediaType.EEPROM
+        ElseIf forceSave = 3 Then
+            CartBackupType = BackupMediaType.FLASH
+        ElseIf forceSave = 4 Then
+            CartBackupType = BackupMediaType.FLASH1M
+        Else
+            CartBackupType = BackupMediaType.None
         Dim limit = Math.Min(bytes.Length, ROM.Length) - 16
         For i As Integer = 0 To limit Step 4
             Select Case ROM(i)
@@ -485,6 +520,7 @@ Public Sub LoadROM(path As String)
                     End If
             End Select
         Next
+        End If
 
         If UseBIOS Then
             ResetCPU() ' Riavvia dall'indirizzo 0x0 per eseguire il BIOS con la ROM inserita
@@ -551,6 +587,15 @@ Public Function StepCycle() As Boolean
 
     If Not IsHalted Then
         ExePC = R(15)
+        
+        If DebuggerPaused Then Return True ' Force exit frame loop
+        
+        If Breakpoints.Contains(ExePC) AndAlso Not IgnoreBreakpointOnce Then
+            DebuggerPaused = True
+            RaiseEvent BreakpointHit(Me, EventArgs.Empty)
+            Return True ' Force exit frame loop
+        End If
+        IgnoreBreakpointOnce = False
         If ExePC >= &HF0000000UI Then
             If HLEStates.ContainsKey(ExePC) Then
                 Dim state = HLEStates(ExePC)
@@ -599,66 +644,58 @@ Public Function StepCycle() As Boolean
     If APU IsNot Nothing Then APU.StepAPU(cyclesTaken)
     TickTimers(cyclesTaken)
 
-    Dim isNewScanline = False
-    Dim isNewHBlank = False
-
-    If CycleCount >= 1232 Then
-        CycleCount -= 1232
-        InternalVCount += 1
-        If InternalVCount > 227 Then InternalVCount = 0
-        ' Scrivi VCOUNT in memoria
-        IO(6) = CByte(InternalVCount And &HFF)
-        IO(7) = CByte(InternalVCount >> 8)
-        isNewScanline = True
-    End If
-    
-    If CycleCount >= 960 AndAlso (CycleCount - cyclesTaken) < 960 Then
-        isNewHBlank = True
-    End If
-
-    ' Aggiorna DISPSTAT
     Dim dispStat = Read16(&H4000004)
+    Dim IF_reg = Read16(&H4000202)
+
+    Dim oldCycles = CycleCount - cyclesTaken
+    While oldCycles < CycleCount
+        If oldCycles < 960 AndAlso CycleCount >= 960 Then
+            If (dispStat And &H10) <> 0 Then IF_reg = IF_reg Or 2US
+            CheckPendingDMAs(2)
+        End If
+
+        If CycleCount >= 1232 Then
+            CycleCount -= 1232
+            oldCycles -= 1232
+            InternalVCount += 1
+            If InternalVCount > 227 Then InternalVCount = 0
+            IO(6) = CByte(InternalVCount And &HFF)
+            IO(7) = CByte(InternalVCount >> 8)
+
+            If InternalVCount = 160 Then
+                frameReady = True
+                If (dispStat And &H8) <> 0 Then IF_reg = IF_reg Or 1US
+                CheckPendingDMAs(1)
+                
+                For ch = 0 To 3
+                    Dim ctrlOff = &HBA + (ch * 12)
+                    Dim ctrl = CUShort(IO(ctrlOff) Or (CUShort(IO(ctrlOff + 1)) << 8))
+                    If (ctrl And &H8000) <> 0 AndAlso ((ctrl >> 12) And 3) = 2 Then
+                        Dim clr = CUShort(ctrl And &H7FFF)
+                        IO(ctrlOff) = CByte(clr And &HFF)
+                        IO(ctrlOff + 1) = CByte((clr >> 8) And &HFF)
+                    End If
+                Next
+            End If
+
+            If InternalVCount = (dispStat >> 8) Then
+                If (dispStat And &H20) <> 0 Then IF_reg = IF_reg Or 4US
+            End If
+        Else
+            Exit While
+        End If
+    End While
+
     Dim isVBlank = InternalVCount >= 160 AndAlso InternalVCount < 227
     If isVBlank Then dispStat = dispStat Or 1US Else dispStat = dispStat And Not 1US
-
     If CycleCount >= 960 Then dispStat = dispStat Or 2US Else dispStat = dispStat And Not 2US
-
-    Dim vCountSetting = dispStat >> 8
-    Dim vMatch = (InternalVCount = vCountSetting)
+    Dim vMatch = (InternalVCount = (dispStat >> 8))
     If vMatch Then dispStat = dispStat Or 4US Else dispStat = dispStat And Not 4US
 
     Dim oldDispStat = Read16(&H4000004)
     dispStat = (oldDispStat And &HFF8) Or (dispStat And 7US)
     IO(4) = CByte(dispStat And &HFF)
     IO(5) = CByte(dispStat >> 8)
-
-    Dim IF_reg = Read16(&H4000202)
-    
-    ' Removed invalid Renderer.RenderLine
-    If InternalVCount = 160 AndAlso isNewScanline Then
-        frameReady = True
-        If (dispStat And &H8) <> 0 Then IF_reg = IF_reg Or 1US
-        CheckPendingDMAs(1)
-        
-        For ch = 0 To 3
-            Dim ctrlOff = &HBA + (ch * 12)
-            Dim ctrl = CUShort(IO(ctrlOff) Or (CUShort(IO(ctrlOff + 1)) << 8))
-            If (ctrl And &H8000) <> 0 AndAlso ((ctrl >> 12) And 3) = 2 Then
-                Dim clr = CUShort(ctrl And &H7FFF)
-                IO(ctrlOff) = CByte(clr And &HFF)
-                IO(ctrlOff + 1) = CByte((clr >> 8) And &HFF)
-            End If
-        Next
-    End If
-
-    If isNewHBlank Then
-        If (dispStat And &H10) <> 0 Then IF_reg = IF_reg Or 2US
-        CheckPendingDMAs(2)
-    End If
-
-    If isNewScanline AndAlso InternalVCount = (dispStat >> 8) Then
-        If (dispStat And &H20) <> 0 Then IF_reg = IF_reg Or 4US
-    End If
 
     IO(&H202) = CByte(IF_reg And &HFF)
     IO(&H203) = CByte(IF_reg >> 8)
@@ -677,12 +714,17 @@ Public Function StepCycle() As Boolean
         ThumbMode = False
         R(15) = &H18
         ExePC = &H18
+
     End If
     Return frameReady
 End Function
 
 Private Sub TickTimers(cycles As Integer)
     For i As Integer = 0 To 3
+        If TM_JustStarted(i) Then
+            TM_JustStarted(i) = False
+            Continue For
+        End If
         Dim ctrl = TM_Control(i)
         If (ctrl And &H80) = 0 Then Continue For ' Timer disabilitato
 
@@ -722,6 +764,7 @@ Private Sub IncrementTimer(i As Integer)
             Dim new_IF = IF_reg Or CUShort(1 << (3 + i))
             IO(&H202) = CByte(new_IF And &HFF)
             IO(&H203) = CByte(new_IF >> 8)
+
         End If
         ' Cascade next timer
         If i < 3 AndAlso (TM_Control(i + 1) And &H84) = &H84 Then

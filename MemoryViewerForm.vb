@@ -20,7 +20,7 @@ Public Class MemoryViewerForm
         
         btnRefresh = New Button() With { .Text = "Refresh", .Location = New Point(260, 10) }
         
-        txtMem = New RichTextBox() With { .Location = New Point(10, 40), .Size = New Size(460, 500), .Font = New Font("Consolas", 10), .ReadOnly = True }
+        txtMem = New RichTextBox() With { .Location = New Point(10, 40), .Size = New Size(460, 500), .Font = New Font("Consolas", 10), .ReadOnly = True, .Anchor = AnchorStyles.Top Or AnchorStyles.Bottom Or AnchorStyles.Left Or AnchorStyles.Right }
         
         AddHandler cmbRegion.SelectedIndexChanged, AddressOf UpdateBaseAddress
         AddHandler btnRefresh.Click, AddressOf RefreshUI

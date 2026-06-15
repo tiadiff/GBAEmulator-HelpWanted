@@ -13,6 +13,7 @@ Public Class Form1
     Private WithEvents SaveTimer As New System.Windows.Forms.Timer()
 
     Private KeyboardState As UShort = 1023
+    Private FastForwardPressed As Boolean = False
 
     <StructLayout(LayoutKind.Sequential)>
     Private Structure XINPUT_GAMEPAD
@@ -58,6 +59,10 @@ Public Class Form1
 
         InitializeComponent()
         
+        ConfigManager.Load()
+
+        AddHandler Emulator.BreakpointHit, AddressOf OnBreakpointHit
+        
         DisplayBitmap = New Bitmap(240, 160, Imaging.PixelFormat.Format32bppArgb)
         ScreenBox.Image = DisplayBitmap
 
@@ -84,6 +89,41 @@ Public Class Form1
                                       frm.Show()
                                   End Sub
         debugMenu.DropDownItems.Add(ioItem)
+
+        Dim vramItem As New ToolStripMenuItem("VRAM & OAM Viewer")
+        AddHandler vramItem.Click, Sub(s, e)
+                                       Dim frm As New VRAMViewerForm(Emulator, Me)
+                                       frm.Show()
+                                   End Sub
+        debugMenu.DropDownItems.Add(vramItem)
+
+        Dim oamAttrItem As New ToolStripMenuItem("OAM Attributes Viewer")
+        AddHandler oamAttrItem.Click, Sub(s, e)
+                                          Dim frm As New OAMAttributesViewerForm(Emulator, Me)
+                                          frm.Show()
+                                      End Sub
+        debugMenu.DropDownItems.Add(oamAttrItem)
+
+        Dim apuItem As New ToolStripMenuItem("APU Debugger")
+        AddHandler apuItem.Click, Sub(s, e)
+                                      Dim frm As New APUViewerForm(Emulator, Me)
+                                      frm.Show()
+                                  End Sub
+        debugMenu.DropDownItems.Add(apuItem)
+
+        Dim tilemapItem As New ToolStripMenuItem("Tilemap Viewer (Backgrounds)")
+        AddHandler tilemapItem.Click, Sub(s, e)
+                                          Dim frm As New TilemapViewerForm(Emulator, Me)
+                                          frm.Show()
+                                      End Sub
+        debugMenu.DropDownItems.Add(tilemapItem)
+
+        Dim displayControlItem As New ToolStripMenuItem("Display & Blending Viewer")
+        AddHandler displayControlItem.Click, Sub(s, e)
+                                                 Dim frm As New DisplayControlViewerForm(Emulator, Me)
+                                                 frm.Show()
+                                             End Sub
+        debugMenu.DropDownItems.Add(displayControlItem)
 
         ' I form di debug causano grossi rallentamenti se lasciati sempre aperti
         ' a causa dei loro Timer di aggiornamento. Li commentiamo per l'avvio automatico.
@@ -140,6 +180,8 @@ Public Class Form1
         SaveTimer.Start()
         
         InitializeSaveStates()
+
+        ApplySettings()
     End Sub
 
     Private Sub InitializeSaveStates()
@@ -193,6 +235,13 @@ Public Class Form1
                 EmulationThread.Join(500)
             End If
         End If
+    End Sub
+
+    Private Sub OnBreakpointHit(sender As Object, e As EventArgs)
+        Me.BeginInvoke(Sub()
+                           PauseEmulation()
+                           MessageBox.Show("Breakpoint Hit at " & Hex(Emulator.PC).PadLeft(8, "0"c), "Debugger", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                       End Sub)
     End Sub
 
     Public Sub ResumeEmulation()
@@ -342,15 +391,41 @@ Public Class Form1
                     fpsTimer.Restart()
                 End If
 
-                Dim targetTicks As Long = CLng((Stopwatch.Frequency * 16.74) / 1000) ' 16.74ms = ~59.7 FPS
-                While sw.ElapsedTicks < targetTicks
-                    Dim msLeft = (targetTicks - sw.ElapsedTicks) * 1000 \ Stopwatch.Frequency
-                    If msLeft > 5 Then
-                        Threading.Thread.Sleep(0) ' Cede solo il time-slice senza forzare i 15.6ms di delay
+                Dim targetMs As Double = 16.74 ' Default ~59.7 FPS
+                
+                If FastForwardPressed AndAlso ConfigManager.CurrentConfig.KeyFastForward <> 0 Then
+                    Dim mult = ConfigManager.CurrentConfig.FastForwardMultiplier
+                    If mult = 0 Then
+                        targetMs = 0 ' Uncapped
                     Else
-                        Threading.Thread.SpinWait(100) ' Attesa attiva finale
+                        targetMs = 16.74 / mult
                     End If
-                End While
+                Else
+                    ' Audio Sync: Dynamic Rate Control
+                    ' Moduliamo leggermente la velocità dell'emulatore per mantenere il buffer audio stabile
+                    ' evitando pause brutali che dimezzerebbero gli FPS.
+                    If Emulator.APU IsNot Nothing AndAlso Emulator.APU.WaveProvider IsNot Nothing Then
+                        Dim buffered = Emulator.APU.WaveProvider.BufferedBytes
+                        If buffered > 44000 Then
+                            targetMs = 17.5 ' Rallenta (buffer > ~250ms)
+                        ElseIf buffered < 20000 Then
+                            targetMs = 16.0 ' Accelera (buffer < ~110ms)
+                        End If
+                    End If
+                End If
+
+                Dim targetTicks As Long = CLng((Stopwatch.Frequency * targetMs) / 1000)
+                
+                If targetMs > 0 Then
+                    While sw.ElapsedTicks < targetTicks
+                        Dim msLeft = (targetTicks - sw.ElapsedTicks) * 1000 \ Stopwatch.Frequency
+                        If msLeft > 5 Then
+                            Threading.Thread.Sleep(0) ' Cede solo il time-slice
+                        Else
+                            Threading.Thread.SpinWait(100) ' Attesa attiva finale
+                        End If
+                    End While
+                End If
                 sw.Restart()
 
             Catch ex As Exception
@@ -387,33 +462,33 @@ Public Class Form1
 
     ' In Form1.vb
     Private Sub Form1_KeyDown(sender As Object, e As KeyEventArgs) Handles MyBase.KeyDown
-        Select Case e.KeyCode
-            Case Keys.A : KeyboardState = KeyboardState And Not 1US ' A
-            Case Keys.B : KeyboardState = KeyboardState And Not 2US ' B
-            Case Keys.Space : KeyboardState = KeyboardState And Not 4US ' Select
-            Case Keys.Enter : KeyboardState = KeyboardState And Not 8US ' Start
-            Case Keys.Right : KeyboardState = KeyboardState And Not 16US
-            Case Keys.Left : KeyboardState = KeyboardState And Not 32US
-            Case Keys.Up : KeyboardState = KeyboardState And Not 64US
-            Case Keys.Down : KeyboardState = KeyboardState And Not 128US
-            Case Keys.R : KeyboardState = KeyboardState And Not 256US ' R
-            Case Keys.L : KeyboardState = KeyboardState And Not 512US ' L
-        End Select
+        Dim key = CInt(e.KeyCode)
+        If key = ConfigManager.CurrentConfig.KeyA Then KeyboardState = KeyboardState And Not 1US
+        If key = ConfigManager.CurrentConfig.KeyB Then KeyboardState = KeyboardState And Not 2US
+        If key = ConfigManager.CurrentConfig.KeySelect Then KeyboardState = KeyboardState And Not 4US
+        If key = ConfigManager.CurrentConfig.KeyStart Then KeyboardState = KeyboardState And Not 8US
+        If key = ConfigManager.CurrentConfig.KeyRight Then KeyboardState = KeyboardState And Not 16US
+        If key = ConfigManager.CurrentConfig.KeyLeft Then KeyboardState = KeyboardState And Not 32US
+        If key = ConfigManager.CurrentConfig.KeyUp Then KeyboardState = KeyboardState And Not 64US
+        If key = ConfigManager.CurrentConfig.KeyDown Then KeyboardState = KeyboardState And Not 128US
+        If key = ConfigManager.CurrentConfig.KeyR Then KeyboardState = KeyboardState And Not 256US
+        If key = ConfigManager.CurrentConfig.KeyL Then KeyboardState = KeyboardState And Not 512US
+        If key = ConfigManager.CurrentConfig.KeyFastForward Then FastForwardPressed = True
     End Sub
 
     Private Sub Form1_KeyUp(sender As Object, e As KeyEventArgs) Handles MyBase.KeyUp
-        Select Case e.KeyCode
-            Case Keys.A : KeyboardState = KeyboardState Or 1US ' A
-            Case Keys.B : KeyboardState = KeyboardState Or 2US ' B
-            Case Keys.Space : KeyboardState = KeyboardState Or 4US ' Select
-            Case Keys.Enter : KeyboardState = KeyboardState Or 8US ' Start
-            Case Keys.Right : KeyboardState = KeyboardState Or 16US
-            Case Keys.Left : KeyboardState = KeyboardState Or 32US
-            Case Keys.Up : KeyboardState = KeyboardState Or 64US
-            Case Keys.Down : KeyboardState = KeyboardState Or 128US
-            Case Keys.R : KeyboardState = KeyboardState Or 256US ' R
-            Case Keys.L : KeyboardState = KeyboardState Or 512US ' L
-        End Select
+        Dim key = CInt(e.KeyCode)
+        If key = ConfigManager.CurrentConfig.KeyA Then KeyboardState = KeyboardState Or 1US
+        If key = ConfigManager.CurrentConfig.KeyB Then KeyboardState = KeyboardState Or 2US
+        If key = ConfigManager.CurrentConfig.KeySelect Then KeyboardState = KeyboardState Or 4US
+        If key = ConfigManager.CurrentConfig.KeyStart Then KeyboardState = KeyboardState Or 8US
+        If key = ConfigManager.CurrentConfig.KeyRight Then KeyboardState = KeyboardState Or 16US
+        If key = ConfigManager.CurrentConfig.KeyLeft Then KeyboardState = KeyboardState Or 32US
+        If key = ConfigManager.CurrentConfig.KeyUp Then KeyboardState = KeyboardState Or 64US
+        If key = ConfigManager.CurrentConfig.KeyDown Then KeyboardState = KeyboardState Or 128US
+        If key = ConfigManager.CurrentConfig.KeyR Then KeyboardState = KeyboardState Or 256US
+        If key = ConfigManager.CurrentConfig.KeyL Then KeyboardState = KeyboardState Or 512US
+        If key = ConfigManager.CurrentConfig.KeyFastForward Then FastForwardPressed = False
     End Sub
 
     Private Sub PauseResumeToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles PauseResumeToolStripMenuItem.Click
@@ -435,14 +510,32 @@ Public Class Form1
     End Sub
 
     Private Sub ControlsToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ControlsToolStripMenuItem.Click
-        Dim msg As String = "D-Pad: Freccette Direzionali" & vbCrLf &
-                            "A: A" & vbCrLf &
-                            "B: B" & vbCrLf &
-                            "L: L" & vbCrLf &
-                            "R: R" & vbCrLf &
-                            "Start: Invio" & vbCrLf &
-                            "Select: Spazio"
-        MessageBox.Show(msg, "Controlli GBA", MessageBoxButtons.OK, MessageBoxIcon.Information)
+        Dim frm As New SettingsForm(Me)
+        frm.ShowDialog()
+    End Sub
+
+    Public Sub ApplySettings()
+        SetWindowScale(ConfigManager.CurrentConfig.WindowScale)
+        ScreenBox.Invalidate() ' Forza il ridisegno per applicare il filtro bilineare se cambiato
+        If Emulator.APU IsNot Nothing Then
+            Emulator.APU.MasterVolume = ConfigManager.CurrentConfig.Volume
+            If Not ConfigManager.CurrentConfig.EnableAudio Then
+                Emulator.APU.MasterVolume = 0.0F
+            End If
+        End If
+    End Sub
+
+    Private Sub ScreenBox_Paint(sender As Object, e As PaintEventArgs) Handles ScreenBox.Paint
+        If Not ConfigManager.CurrentConfig.EnableBilinearFiltering Then
+            e.Graphics.InterpolationMode = Drawing2D.InterpolationMode.NearestNeighbor
+            e.Graphics.PixelOffsetMode = Drawing2D.PixelOffsetMode.Half
+        Else
+            e.Graphics.InterpolationMode = Drawing2D.InterpolationMode.Bilinear
+            e.Graphics.PixelOffsetMode = Drawing2D.PixelOffsetMode.Default
+        End If
+        If DisplayBitmap IsNot Nothing Then
+            e.Graphics.DrawImage(DisplayBitmap, ScreenBox.ClientRectangle)
+        End If
     End Sub
 
     Private Sub SetWindowScale(scale As Integer)
@@ -497,7 +590,7 @@ Public Class Form1
 
     Private Sub Form1_Deactivate(sender As Object, e As EventArgs) Handles Me.Deactivate
         WasRunningBeforeDeactivate = EmulationRunning
-        If EmulationRunning Then
+        If EmulationRunning AndAlso ConfigManager.CurrentConfig.PauseOnDefocus Then
             PauseEmulation()
             If Emulator.APU IsNot Nothing Then
                 Emulator.APU.StopAudio()
@@ -506,8 +599,11 @@ Public Class Form1
     End Sub
 
     Private Sub Form1_Activated(sender As Object, e As EventArgs) Handles Me.Activated
-        If WasRunningBeforeDeactivate AndAlso Not EmulationRunning Then
+        If WasRunningBeforeDeactivate AndAlso Not EmulationRunning AndAlso ConfigManager.CurrentConfig.PauseOnDefocus Then
             ResumeEmulation()
+            If Emulator.APU IsNot Nothing Then
+                Emulator.APU.ResumeAudio()
+            End If
         End If
     End Sub
 

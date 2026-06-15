@@ -5,8 +5,11 @@ Partial Public Class GBACore
     Public FramePixels(38399) As Integer
     Private WinMaskCache(38399) As Byte
     Private ObjWinPixelsCache(38399) As Boolean
+    Private ObjPixelsRendered(159) As Integer
 
     Public Sub RenderFrame()
+        Array.Clear(ObjPixelsRendered, 0, 160)
+
         ' Disegna il colore di sfondo (Backdrop) - Colore 0 della Palette
         Dim backdropCol = CUShort(PaletteRAM(0) Or (CUShort(PaletteRAM(1)) << 8))
         Dim bgARGB = GBAtoARGB(backdropCol)
@@ -118,6 +121,8 @@ Partial Public Class GBACore
     End Sub
 
     Private Sub BuildObjWindowPixels(dispCnt As UShort)
+        Array.Clear(ObjWinPixelsCache, 0, 38400)
+        
         Dim sprSizes(,,) As Integer = {
             {{8, 8}, {16, 16}, {32, 32}, {64, 64}},   
             {{16, 8}, {32, 8}, {32, 16}, {64, 32}},   
@@ -125,22 +130,37 @@ Partial Public Class GBACore
         }
         Dim is1DMapping = (dispCnt And &H40) <> 0
 
+        Dim mosReg = Read16(&H400004C)
+        Dim objMosH = ((mosReg >> 8) And &HF) + 1
+        Dim objMosV = ((mosReg >> 12) And &HF) + 1
+
         For i = 127 To 0 Step -1
             Dim addr = i * 8
             Dim a0 = CUShort(OAM(addr) Or (CUShort(OAM(addr + 1)) << 8))
-            If (a0 And &H300) = &H200 Then Continue For ' Sprite Disabled
-            If (a0 And &HC00) <> &H800 Then Continue For ' Not OBJ Window mode
-
             Dim a1 = CUShort(OAM(addr + 2) Or (CUShort(OAM(addr + 3)) << 8))
             Dim a2 = CUShort(OAM(addr + 4) Or (CUShort(OAM(addr + 5)) << 8))
 
+            Dim isAffine = (a0 And &H100) <> 0
+            Dim isDouble = isAffine AndAlso (a0 And &H200) <> 0
+            Dim objDisable = Not isAffine AndAlso (a0 And &H200) <> 0
+            If objDisable Then Continue For
+
+            Dim objMode = (a0 >> 10) And 3
+            If objMode <> 2 Then Continue For ' Solo OBJ Window mode
+
             Dim y = a0 And &HFF : If y >= 160 Then y -= 256
-            Dim x = a1 And &H1FF : If x >= 240 Then x -= 512
+            Dim x = a1 And &H1FF : If x >= 256 Then x -= 512
+            
             Dim tile = a2 And &H3FF
+            Dim bgMode = dispCnt And 7
+            If bgMode >= 3 AndAlso tile < 512 Then Continue For
 
             Dim is8bpp = (a0 And &H2000) <> 0
-            Dim hFlip = (a1 And &H1000) <> 0
-            Dim vFlip = (a1 And &H2000) <> 0
+            If is8bpp Then tile = tile And Not 1
+
+            Dim hFlip = Not isAffine AndAlso (a1 And &H1000) <> 0
+            Dim vFlip = Not isAffine AndAlso (a1 And &H2000) <> 0
+            Dim objMosaic = (a0 And &H1000) <> 0
 
             Dim shape = (a0 >> 14) And 3
             Dim size = (a1 >> 14) And 3
@@ -149,25 +169,62 @@ Partial Public Class GBACore
             Dim w = sprSizes(shape, size, 0)
             Dim h = sprSizes(shape, size, 1)
 
-            For py = 0 To h - 1
+            Dim drawW = If(isDouble, w * 2, w)
+            Dim drawH = If(isDouble, h * 2, h)
+
+            Dim pa = 256, pb = 0, pc = 0, pd = 256
+            If isAffine Then
+                Dim paramIdx = (a1 >> 9) And 31
+                Dim pBase = paramIdx * 32
+                pa = CShort(OAM(pBase + 6) Or (CUShort(OAM(pBase + 7)) << 8))
+                pb = CShort(OAM(pBase + 14) Or (CUShort(OAM(pBase + 15)) << 8))
+                pc = CShort(OAM(pBase + 22) Or (CUShort(OAM(pBase + 23)) << 8))
+                pd = CShort(OAM(pBase + 30) Or (CUShort(OAM(pBase + 31)) << 8))
+            End If
+
+            For py = 0 To drawH - 1
                 Dim yD = y + py
                 If yD < 0 Or yD >= 160 Then Continue For
-                Dim f_py = If(vFlip, h - 1 - py, py)
+                
+                Dim m_yD = If(objMosaic, yD - (yD Mod objMosV), yD)
+                Dim m_py = m_yD - y
+                If m_py < 0 OrElse m_py >= drawH Then Continue For
 
-                For px = 0 To w - 1
+                For px = 0 To drawW - 1
                     Dim xD = x + px
                     If xD < 0 Or xD >= 240 Then Continue For
-                    Dim f_px = If(hFlip, w - 1 - px, px)
+                    
+                    Dim m_xD = If(objMosaic, xD - (xD Mod objMosH), xD)
+                    Dim m_px = m_xD - x
+                    If m_px < 0 OrElse m_px >= drawW Then Continue For
 
-                    Dim tx = f_px Mod 8
-                    Dim ty = f_py Mod 8
+                    Dim srcX As Integer, srcY As Integer
+                    If isAffine Then
+                        Dim rx = m_px - (drawW \ 2)
+                        Dim ry = m_py - (drawH \ 2)
+                        
+                        srcX = (pa * rx + pb * ry) >> 8
+                        srcY = (pc * rx + pd * ry) >> 8
+                        
+                        srcX += (w \ 2)
+                        srcY += (h \ 2)
+                        
+                        If srcX < 0 OrElse srcX >= w OrElse srcY < 0 OrElse srcY >= h Then Continue For
+                    Else
+                        srcX = If(hFlip, w - 1 - m_px, m_px)
+                        srcY = If(vFlip, h - 1 - m_py, m_py)
+                    End If
+
+                    Dim tx = srcX Mod 8
+                    Dim ty = srcY Mod 8
+                    
                     Dim tOff As Integer
                     If is1DMapping Then
-                        Dim tileX = f_px \ 8
-                        Dim tileY = f_py \ 8
+                        Dim tileX = srcX \ 8
+                        Dim tileY = srcY \ 8
                         tOff = tile + (tileY * (w \ 8) + tileX) * If(is8bpp, 2, 1)
                     Else
-                        tOff = tile + (f_py \ 8) * 32 + (f_px \ 8) * If(is8bpp, 2, 1)
+                        tOff = tile + (srcY \ 8) * 32 + (srcX \ 8) * If(is8bpp, 2, 1)
                     End If
 
                     Dim c As Integer
@@ -525,6 +582,10 @@ Partial Public Class GBACore
                     End If
 
                     If c <> 0 Then ' Il Colore 0 è trasparente negli Sprite
+                        If ConfigManager.CurrentConfig.EnforceSpriteLimit Then
+                            ObjPixelsRendered(yD) += 1
+                            If ObjPixelsRendered(yD) > 960 Then Continue For
+                        End If
                         Dim pAddr As Integer = If(is8bpp, 512 + (c * 2), 512 + (pal * 32) + (c * 2))
                         Dim col = CUShort(PaletteRAM(pAddr) Or (CUShort(PaletteRAM(pAddr + 1)) << 8))
                         FramePixels(yD * 240 + xD) = GBAtoARGB(col)
@@ -538,6 +599,15 @@ Partial Public Class GBACore
         Dim r = c And &H1F
         Dim g = (c >> 5) And &H1F
         Dim b = (c >> 10) And &H1F
+
+        If ConfigManager.CurrentConfig.ColorCorrection Then
+            Dim rL = (r * 13 + g * 2 + b * 1) >> 4
+            Dim gL = (r * 1 + g * 13 + b * 2) >> 4
+            Dim bL = (r * 2 + g * 2 + b * 12) >> 4
+            r = Math.Max(0, Math.Min(31, rL))
+            g = Math.Max(0, Math.Min(31, gL))
+            b = Math.Max(0, Math.Min(31, bL))
+        End If
         
         ' Espansione precisa da 5-bit a 8-bit: (valore * 255) / 31
         ' Ottimizzazione binaria: (x << 3) Or (x >> 2) mappa 31 a 255

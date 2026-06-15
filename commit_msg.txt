@@ -1,0 +1,7 @@
+Add Save States, Battery Saves, UI improvements and syntax fixes
+
+- Implemented Full support for EEPROM, SRAM, and Flash memory backup (.sav files) with background auto-save.
+- Added Save States functionality (save and load instantaneous emulator states across 9 slots).
+- UI & UX Improvements: Drag & drop ROM loading, Window Scaling (1x-4x), Pause/Resume menu, and smart audio mute on background.
+- Fixed compilation error related to trailing commas in VB.NET array syntax.
+- Updated README roadmap and milestones.
