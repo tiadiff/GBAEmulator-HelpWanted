@@ -7,7 +7,8 @@ Public Class Form1
     Private DisplayBitmap As Bitmap
     Private CurrentRomPath As String = ""
     Private WasRunningBeforeDeactivate As Boolean = False
-    
+    Private IsAppActive As Boolean = True
+
     Private RecentROMs As New List(Of String)
     Private RecentROMsFile As String = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recent_roms.txt")
     Private WithEvents SaveTimer As New System.Windows.Forms.Timer()
@@ -40,6 +41,10 @@ Public Class Form1
     Private Shared Function XInputGetState_1_3(dwUserIndex As UInteger, ByRef pState As XINPUT_STATE) As Integer
     End Function
 
+    <DllImport("user32.dll")>
+    Private Shared Function GetAsyncKeyState(vKey As Integer) As Short
+    End Function
+
     Private XInputAvailable As Boolean = True
     Private UseXInput13 As Boolean = False
 
@@ -58,99 +63,28 @@ Public Class Form1
         End Try
 
         InitializeComponent()
-        
+
+        ToolStripManager.Renderer = New DarkModeRenderer()
+
         ConfigManager.Load()
 
         AddHandler Emulator.BreakpointHit, AddressOf OnBreakpointHit
-        
+
         DisplayBitmap = New Bitmap(240, 160, Imaging.PixelFormat.Format32bppArgb)
         ScreenBox.Image = DisplayBitmap
 
-        Dim debugMenu As New ToolStripMenuItem("Debug")
-        MenuStrip1.Items.Add(debugMenu)
-        
-        Dim cpuItem As New ToolStripMenuItem("CPU Debugger")
-        AddHandler cpuItem.Click, Sub(s, e)
-                                      Dim frm As New DebuggerForm(Emulator, Me)
-                                      frm.Show()
-                                  End Sub
-        debugMenu.DropDownItems.Add(cpuItem)
-        
-        Dim memItem As New ToolStripMenuItem("Memory Viewer")
-        AddHandler memItem.Click, Sub(s, e)
-                                      Dim frm As New MemoryViewerForm(Emulator)
-                                      frm.Show()
-                                  End Sub
-        debugMenu.DropDownItems.Add(memItem)
-        
-        Dim ioItem As New ToolStripMenuItem("I/O Registers")
-        AddHandler ioItem.Click, Sub(s, e)
-                                      Dim frm As New IORegistersForm(Emulator)
-                                      frm.Show()
-                                  End Sub
-        debugMenu.DropDownItems.Add(ioItem)
 
-        Dim vramItem As New ToolStripMenuItem("VRAM & OAM Viewer")
-        AddHandler vramItem.Click, Sub(s, e)
-                                       Dim frm As New VRAMViewerForm(Emulator, Me)
-                                       frm.Show()
-                                   End Sub
-        debugMenu.DropDownItems.Add(vramItem)
-
-        Dim oamAttrItem As New ToolStripMenuItem("OAM Attributes Viewer")
-        AddHandler oamAttrItem.Click, Sub(s, e)
-                                          Dim frm As New OAMAttributesViewerForm(Emulator, Me)
-                                          frm.Show()
-                                      End Sub
-        debugMenu.DropDownItems.Add(oamAttrItem)
-
-        Dim apuItem As New ToolStripMenuItem("APU Debugger")
-        AddHandler apuItem.Click, Sub(s, e)
-                                      Dim frm As New APUViewerForm(Emulator, Me)
-                                      frm.Show()
-                                  End Sub
-        debugMenu.DropDownItems.Add(apuItem)
-
-        Dim apuOscItem As New ToolStripMenuItem("APU Oscilloscope")
-        AddHandler apuOscItem.Click, Sub(s, e)
-                                         Dim frm As New APUOscilloscopeForm(Emulator)
-                                         frm.Show()
-                                     End Sub
-        debugMenu.DropDownItems.Add(apuOscItem)
-
-        Dim tilemapItem As New ToolStripMenuItem("Tilemap Viewer (Backgrounds)")
-        AddHandler tilemapItem.Click, Sub(s, e)
-                                          Dim frm As New TilemapViewerForm(Emulator, Me)
-                                          frm.Show()
-                                      End Sub
-        debugMenu.DropDownItems.Add(tilemapItem)
-
-        Dim displayControlItem As New ToolStripMenuItem("Display & Blending Viewer")
-        AddHandler displayControlItem.Click, Sub(s, e)
-                                                 Dim frm As New DisplayControlViewerForm(Emulator, Me)
-                                                 frm.Show()
-                                             End Sub
-        debugMenu.DropDownItems.Add(displayControlItem)
-
-        ' I form di debug causano grossi rallentamenti se lasciati sempre aperti
-        ' a causa dei loro Timer di aggiornamento. Li commentiamo per l'avvio automatico.
-        ' Dim debugCPU As New DebuggerForm(Emulator, Me)
-        ' debugCPU.Show()
-        ' Dim debugMem As New MemoryViewerForm(Emulator)
-        ' debugMem.Show()
-        ' Dim debugIO As New IORegistersForm(Emulator)
-        ' debugIO.Show()
 
         ' Auto-carica gba_bios.bin se presente nei percorsi comuni
         Dim baseDir As String = AppDomain.CurrentDomain.BaseDirectory
         Dim searchPaths As New List(Of String)
-        
+
         ' Aggiungi percorsi relativi all'eseguibile
         searchPaths.Add(System.IO.Path.Combine(baseDir, "rom", "gba_bios.bin"))
         searchPaths.Add(System.IO.Path.Combine(baseDir, "rom", "bios.bin"))
         searchPaths.Add(System.IO.Path.Combine(baseDir, "gba_bios.bin"))
         searchPaths.Add(System.IO.Path.Combine(baseDir, "bios.bin"))
-        
+
         ' Cerca risalendo i parent directory (utile per lo sviluppo)
         Dim currentParent = System.IO.Directory.GetParent(baseDir)
         For i As Integer = 1 To 5
@@ -175,17 +109,17 @@ Public Class Form1
                 Exit For
             End If
         Next
-        
+
         If Not loaded Then
             ' Se non viene trovato, avvisa nel titolo
             StatusLabelStatus.Text = "BIOS NON Trovato"
         End If
-        
+
         LoadRecentROMs()
 
         SaveTimer.Interval = 3000
         SaveTimer.Start()
-        
+
         InitializeSaveStates()
 
         ApplySettings()
@@ -212,7 +146,7 @@ Public Class Form1
     Private Sub UpdateLoadStatesMenu()
         LoadStateToolStripMenuItem.DropDownItems.Clear()
         If CurrentRomPath = "" Then Return
-        
+
         Dim hasStates As Boolean = False
         For i As Integer = 1 To 9
             Dim slotNum As Integer = i
@@ -300,16 +234,16 @@ Public Class Form1
         EmulationRunning = False
         Application.Exit()
     End Sub
-   
+
     Private Sub EmulationLoop()
         Dim sw As New Stopwatch()
         sw.Start()
-        
+
         Dim fpsTimer As New Stopwatch()
         fpsTimer.Start()
         Dim frames As Integer = 0
         Dim lastFps As Integer = 0
-        
+
         Dim cpuTime As New Stopwatch()
         Dim gpuTime As New Stopwatch()
         Dim totalCpuMs As Long = 0
@@ -367,25 +301,27 @@ Public Class Form1
                 cpuTime.Stop()
                 totalCpuMs += cpuTime.ElapsedMilliseconds
 
-                If frameReady Then 
-                    gpuTime.Restart()
-                    Emulator.RenderFrame()
-                    gpuTime.Stop()
-                    totalGpuMs += gpuTime.ElapsedMilliseconds
-                End If
+                If frameReady Then
+                    Dim skipFrame As Boolean = FastForwardPressed AndAlso (frames Mod 4 <> 0)
+                    
+                    If Not skipFrame Then
+                        gpuTime.Restart()
+                        Emulator.RenderFrame()
+                        gpuTime.Stop()
+                        totalGpuMs += gpuTime.ElapsedMilliseconds
 
-                Me.BeginInvoke(Sub()
-                                   If frameReady Then
-                                       Dim rect As New Rectangle(0, 0, 240, 160)
-                                       Dim data As Imaging.BitmapData = DisplayBitmap.LockBits(rect, Imaging.ImageLockMode.WriteOnly, DisplayBitmap.PixelFormat)
-                                       System.Runtime.InteropServices.Marshal.Copy(Emulator.FramePixels, 0, data.Scan0, Emulator.FramePixels.Length)
-                                       DisplayBitmap.UnlockBits(data)
-                                       ScreenBox.Invalidate()
-                                   End If
-                                   StatusLabelFPS.Text = $"FPS: {lastFps}"
-                                   StatusLabelCPU.Text = $"CPU: {lastCpuMs}ms"
-                                   StatusLabelGPU.Text = $"GPU: {lastGpuMs}ms"
-                               End Sub)
+                        Me.BeginInvoke(Sub()
+                                           Dim rect As New Rectangle(0, 0, 240, 160)
+                                           Dim data As Imaging.BitmapData = DisplayBitmap.LockBits(rect, Imaging.ImageLockMode.WriteOnly, DisplayBitmap.PixelFormat)
+                                           System.Runtime.InteropServices.Marshal.Copy(Emulator.FramePixels, 0, data.Scan0, Emulator.FramePixels.Length)
+                                           DisplayBitmap.UnlockBits(data)
+                                           ScreenBox.Invalidate()
+                                           StatusLabelFPS.Text = $"FPS: {lastFps}"
+                                           StatusLabelCPU.Text = $"CPU: {lastCpuMs}ms"
+                                           StatusLabelGPU.Text = $"GPU: {lastGpuMs}ms"
+                                       End Sub)
+                    End If
+                End If
 
                 frames += 1
                 If fpsTimer.ElapsedMilliseconds >= 1000 Then
@@ -399,7 +335,13 @@ Public Class Form1
                 End If
 
                 Dim targetMs As Double = 16.74 ' Default ~59.7 FPS
-                
+
+                If IsAppActive Then
+                    FastForwardPressed = (GetAsyncKeyState(ConfigManager.CurrentConfig.KeyFastForward) And &H8000) <> 0
+                Else
+                    FastForwardPressed = False
+                End If
+
                 If FastForwardPressed AndAlso ConfigManager.CurrentConfig.KeyFastForward <> 0 Then
                     Dim mult = ConfigManager.CurrentConfig.FastForwardMultiplier
                     If mult = 0 Then
@@ -422,7 +364,7 @@ Public Class Form1
                 End If
 
                 Dim targetTicks As Long = CLng((Stopwatch.Frequency * targetMs) / 1000)
-                
+
                 If targetMs > 0 Then
                     While sw.ElapsedTicks < targetTicks
                         Dim msLeft = (targetTicks - sw.ElapsedTicks) * 1000 \ Stopwatch.Frequency
@@ -596,6 +538,7 @@ Public Class Form1
     End Sub
 
     Private Sub Form1_Deactivate(sender As Object, e As EventArgs) Handles Me.Deactivate
+        IsAppActive = False
         WasRunningBeforeDeactivate = EmulationRunning
         If EmulationRunning AndAlso ConfigManager.CurrentConfig.PauseOnDefocus Then
             PauseEmulation()
@@ -606,6 +549,7 @@ Public Class Form1
     End Sub
 
     Private Sub Form1_Activated(sender As Object, e As EventArgs) Handles Me.Activated
+        IsAppActive = True
         If WasRunningBeforeDeactivate AndAlso Not EmulationRunning AndAlso ConfigManager.CurrentConfig.PauseOnDefocus Then
             ResumeEmulation()
             If Emulator.APU IsNot Nothing Then
@@ -686,4 +630,52 @@ Public Class Form1
         End If
     End Sub
 
+    Private Sub OptionsToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles OptionsToolStripMenuItem.Click
+
+    End Sub
+
+    Private Sub CPUDebuggerToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles CPUDebuggerToolStripMenuItem.Click
+        Dim frm As New DebuggerForm(Emulator, Me)
+        frm.Show()
+    End Sub
+
+    Private Sub MemoryViewerToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles MemoryViewerToolStripMenuItem.Click
+        Dim frm As New MemoryViewerForm(Emulator)
+        frm.Show()
+    End Sub
+
+    Private Sub IORegistersToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles IORegistersToolStripMenuItem.Click
+        Dim frm As New IORegistersForm(Emulator)
+        frm.Show()
+    End Sub
+
+    Private Sub VRAMOAMViewerToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles VRAMOAMViewerToolStripMenuItem.Click
+        Dim frm As New VRAMViewerForm(Emulator, Me)
+        frm.Show()
+    End Sub
+
+    Private Sub OAMAttributesViewerToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles OAMAttributesViewerToolStripMenuItem.Click
+        Dim frm As New OAMAttributesViewerForm(Emulator, Me)
+        frm.Show()
+    End Sub
+
+    Private Sub APUDebuggerToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles APUDebuggerToolStripMenuItem.Click
+        Dim frm As New APUViewerForm(Emulator, Me)
+        frm.Show()
+    End Sub
+
+    Private Sub APUOscilloscopeToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles APUOscilloscopeToolStripMenuItem.Click
+        Dim frm As New APUOscilloscopeForm(Emulator)
+        frm.Show()
+    End Sub
+
+    Private Sub TilemapViewerToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles TilemapViewerToolStripMenuItem.Click
+        Dim frm As New TilemapViewerForm(Emulator, Me)
+        frm.Show()
+    End Sub
+
+    Private Sub DisplayBlendingViewerToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles DisplayBlendingViewerToolStripMenuItem.Click
+        Dim frm As New DisplayControlViewerForm(Emulator, Me)
+        frm.Show()
+    End Sub
 End Class

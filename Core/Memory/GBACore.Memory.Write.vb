@@ -1,5 +1,5 @@
 Partial Public Class GBACore
-    Public Sub Write32(address As UInteger, value As UInteger)
+    Private Sub InternalWrite32(address As UInteger, value As UInteger)
         address = address And Not 3UI
         Dim b0 = CByte(value And &HFF) : Dim b1 = CByte((value >> 8) And &HFF)
         Dim b2 = CByte((value >> 16) And &HFF) : Dim b3 = CByte((value >> 24) And &HFF)
@@ -29,7 +29,13 @@ Partial Public Class GBACore
         End Select
     End Sub
 
-    Public Sub Write16(address As UInteger, value As UShort)
+    Public Sub Write32(address As UInteger, value As UInteger)
+        OpenBus = value
+        If (address >> 24) = 4 Then IOOpenBus = value
+        InternalWrite32(address, value)
+    End Sub
+
+    Private Sub InternalWrite16(address As UInteger, value As UShort)
         address = address And Not 1UI
         Dim b0 = CByte(value And &HFF) : Dim b1 = CByte((value >> 8) And &HFF)
         Select Case address >> 24
@@ -174,7 +180,13 @@ Partial Public Class GBACore
         End Select
     End Sub
 
-    Public Sub Write8(address As UInteger, value As Byte)
+    Public Sub Write16(address As UInteger, value As UShort)
+        OpenBus = CUInt(value) Or (CUInt(value) << 16)
+        If (address >> 24) = 4 Then IOOpenBus = OpenBus
+        InternalWrite16(address, value)
+    End Sub
+
+    Private Sub InternalWrite8(address As UInteger, value As Byte)
         Select Case address >> 24
             Case &H2 : WRAM(CInt(address And &H3FFFF)) = value
             Case &H3 : IRAM(CInt(address And &H7FFF)) = value
@@ -254,5 +266,10 @@ Partial Public Class GBACore
                     End If
                 End If
         End Select
+    End Sub
+    Public Sub Write8(address As UInteger, value As Byte)
+        OpenBus = CUInt(value) Or (CUInt(value) << 8) Or (CUInt(value) << 16) Or (CUInt(value) << 24)
+        If (address >> 24) = 4 Then IOOpenBus = OpenBus
+        InternalWrite8(address, value)
     End Sub
 End Class

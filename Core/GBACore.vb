@@ -128,6 +128,8 @@ Partial Public Class GBACore
     Public IsHalted As Boolean = False
     Private InternalVCount As Integer = 0
     Private CycleCount As Integer = 0
+    Public OpenBus As UInteger = 0
+    Public IOOpenBus As UInteger = 0
 
     ' System Control Registers
     Public WaitCnt As UShort = &H0

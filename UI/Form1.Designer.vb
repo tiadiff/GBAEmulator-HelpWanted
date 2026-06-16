@@ -26,12 +26,15 @@ Partial Class Form1
         FileToolStripMenuItem = New ToolStripMenuItem()
         LoadBIOSToolStripMenuItem = New ToolStripMenuItem()
         UnloadBIOSToolStripMenuItem = New ToolStripMenuItem()
+        ToolStripSeparator2 = New ToolStripSeparator()
         LoadROMToolStripMenuItem = New ToolStripMenuItem()
         RecentROMsToolStripMenuItem = New ToolStripMenuItem()
+        ToolStripSeparator1 = New ToolStripSeparator()
         ExitToolStripMenuItem = New ToolStripMenuItem()
         EmulationToolStripMenuItem = New ToolStripMenuItem()
         PauseResumeToolStripMenuItem = New ToolStripMenuItem()
         ResetToolStripMenuItem = New ToolStripMenuItem()
+        ToolStripSeparator3 = New ToolStripSeparator()
         SaveStateToolStripMenuItem = New ToolStripMenuItem()
         LoadStateToolStripMenuItem = New ToolStripMenuItem()
         ViewToolStripMenuItem = New ToolStripMenuItem()
@@ -39,6 +42,19 @@ Partial Class Form1
         Size2xToolStripMenuItem = New ToolStripMenuItem()
         Size3xToolStripMenuItem = New ToolStripMenuItem()
         Size4xToolStripMenuItem = New ToolStripMenuItem()
+        DebugToolStripMenuItem = New ToolStripMenuItem()
+        DisplayBlendingViewerToolStripMenuItem = New ToolStripMenuItem()
+        CPUDebuggerToolStripMenuItem = New ToolStripMenuItem()
+        ToolStripSeparator7 = New ToolStripSeparator()
+        MemoryViewerToolStripMenuItem = New ToolStripMenuItem()
+        IORegistersToolStripMenuItem = New ToolStripMenuItem()
+        OAMAttributesViewerToolStripMenuItem = New ToolStripMenuItem()
+        ToolStripSeparator5 = New ToolStripSeparator()
+        VRAMOAMViewerToolStripMenuItem = New ToolStripMenuItem()
+        TilemapViewerToolStripMenuItem = New ToolStripMenuItem()
+        ToolStripSeparator4 = New ToolStripSeparator()
+        APUDebuggerToolStripMenuItem = New ToolStripMenuItem()
+        APUOscilloscopeToolStripMenuItem = New ToolStripMenuItem()
         OptionsToolStripMenuItem = New ToolStripMenuItem()
         ControlsToolStripMenuItem = New ToolStripMenuItem()
         ScreenBox = New PictureBox()
@@ -47,6 +63,7 @@ Partial Class Form1
         StatusLabelFPS = New ToolStripStatusLabel()
         StatusLabelCPU = New ToolStripStatusLabel()
         StatusLabelGPU = New ToolStripStatusLabel()
+        ToolStripSeparator6 = New ToolStripSeparator()
         MenuStrip1.SuspendLayout()
         CType(ScreenBox, ComponentModel.ISupportInitialize).BeginInit()
         StatusStrip1.SuspendLayout()
@@ -56,7 +73,7 @@ Partial Class Form1
         ' 
         MenuStrip1.BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
         MenuStrip1.ForeColor = Color.White
-        MenuStrip1.Items.AddRange(New ToolStripItem() {FileToolStripMenuItem, EmulationToolStripMenuItem, ViewToolStripMenuItem, OptionsToolStripMenuItem})
+        MenuStrip1.Items.AddRange(New ToolStripItem() {FileToolStripMenuItem, EmulationToolStripMenuItem, ViewToolStripMenuItem, DebugToolStripMenuItem, OptionsToolStripMenuItem})
         MenuStrip1.Location = New Point(0, 0)
         MenuStrip1.Name = "MenuStrip1"
         MenuStrip1.Padding = New Padding(7, 2, 0, 2)
@@ -66,7 +83,7 @@ Partial Class Form1
         ' 
         ' FileToolStripMenuItem
         ' 
-        FileToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {LoadBIOSToolStripMenuItem, UnloadBIOSToolStripMenuItem, LoadROMToolStripMenuItem, RecentROMsToolStripMenuItem, ExitToolStripMenuItem})
+        FileToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {LoadBIOSToolStripMenuItem, UnloadBIOSToolStripMenuItem, ToolStripSeparator2, LoadROMToolStripMenuItem, RecentROMsToolStripMenuItem, ToolStripSeparator1, ExitToolStripMenuItem})
         FileToolStripMenuItem.Name = "FileToolStripMenuItem"
         FileToolStripMenuItem.Size = New Size(37, 20)
         FileToolStripMenuItem.Text = "File"
@@ -83,6 +100,11 @@ Partial Class Form1
         UnloadBIOSToolStripMenuItem.Size = New Size(172, 22)
         UnloadBIOSToolStripMenuItem.Text = "Unload BIOS (HLE)"
         ' 
+        ' ToolStripSeparator2
+        ' 
+        ToolStripSeparator2.Name = "ToolStripSeparator2"
+        ToolStripSeparator2.Size = New Size(169, 6)
+        ' 
         ' LoadROMToolStripMenuItem
         ' 
         LoadROMToolStripMenuItem.Name = "LoadROMToolStripMenuItem"
@@ -95,6 +117,11 @@ Partial Class Form1
         RecentROMsToolStripMenuItem.Size = New Size(172, 22)
         RecentROMsToolStripMenuItem.Text = "Recent ROMs"
         ' 
+        ' ToolStripSeparator1
+        ' 
+        ToolStripSeparator1.Name = "ToolStripSeparator1"
+        ToolStripSeparator1.Size = New Size(169, 6)
+        ' 
         ' ExitToolStripMenuItem
         ' 
         ExitToolStripMenuItem.Name = "ExitToolStripMenuItem"
@@ -103,7 +130,7 @@ Partial Class Form1
         ' 
         ' EmulationToolStripMenuItem
         ' 
-        EmulationToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {PauseResumeToolStripMenuItem, ResetToolStripMenuItem, SaveStateToolStripMenuItem, LoadStateToolStripMenuItem})
+        EmulationToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {PauseResumeToolStripMenuItem, ResetToolStripMenuItem, ToolStripSeparator3, SaveStateToolStripMenuItem, LoadStateToolStripMenuItem})
         EmulationToolStripMenuItem.Name = "EmulationToolStripMenuItem"
         EmulationToolStripMenuItem.Size = New Size(73, 20)
         EmulationToolStripMenuItem.Text = "Emulation"
@@ -119,6 +146,11 @@ Partial Class Form1
         ResetToolStripMenuItem.Name = "ResetToolStripMenuItem"
         ResetToolStripMenuItem.Size = New Size(158, 22)
         ResetToolStripMenuItem.Text = "Reset"
+        ' 
+        ' ToolStripSeparator3
+        ' 
+        ToolStripSeparator3.Name = "ToolStripSeparator3"
+        ToolStripSeparator3.Size = New Size(155, 6)
         ' 
         ' SaveStateToolStripMenuItem
         ' 
@@ -163,18 +195,94 @@ Partial Class Form1
         Size4xToolStripMenuItem.Size = New Size(155, 22)
         Size4xToolStripMenuItem.Text = "Window Size 4x"
         ' 
+        ' DebugToolStripMenuItem
+        ' 
+        DebugToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {DisplayBlendingViewerToolStripMenuItem, CPUDebuggerToolStripMenuItem, ToolStripSeparator7, MemoryViewerToolStripMenuItem, ToolStripSeparator6, IORegistersToolStripMenuItem, OAMAttributesViewerToolStripMenuItem, ToolStripSeparator5, VRAMOAMViewerToolStripMenuItem, TilemapViewerToolStripMenuItem, ToolStripSeparator4, APUDebuggerToolStripMenuItem, APUOscilloscopeToolStripMenuItem})
+        DebugToolStripMenuItem.Name = "DebugToolStripMenuItem"
+        DebugToolStripMenuItem.Size = New Size(54, 20)
+        DebugToolStripMenuItem.Text = "Debug"
+        ' 
+        ' DisplayBlendingViewerToolStripMenuItem
+        ' 
+        DisplayBlendingViewerToolStripMenuItem.Name = "DisplayBlendingViewerToolStripMenuItem"
+        DisplayBlendingViewerToolStripMenuItem.Size = New Size(235, 22)
+        DisplayBlendingViewerToolStripMenuItem.Text = "Display && Blending Viewer"
+        ' 
+        ' CPUDebuggerToolStripMenuItem
+        ' 
+        CPUDebuggerToolStripMenuItem.Name = "CPUDebuggerToolStripMenuItem"
+        CPUDebuggerToolStripMenuItem.Size = New Size(235, 22)
+        CPUDebuggerToolStripMenuItem.Text = "CPU Debugger"
+        ' 
+        ' ToolStripSeparator7
+        ' 
+        ToolStripSeparator7.Name = "ToolStripSeparator7"
+        ToolStripSeparator7.Size = New Size(232, 6)
+        ' 
+        ' MemoryViewerToolStripMenuItem
+        ' 
+        MemoryViewerToolStripMenuItem.Name = "MemoryViewerToolStripMenuItem"
+        MemoryViewerToolStripMenuItem.Size = New Size(235, 22)
+        MemoryViewerToolStripMenuItem.Text = "Memory Viewer"
+        ' 
+        ' IORegistersToolStripMenuItem
+        ' 
+        IORegistersToolStripMenuItem.Name = "IORegistersToolStripMenuItem"
+        IORegistersToolStripMenuItem.Size = New Size(235, 22)
+        IORegistersToolStripMenuItem.Text = "I/O Registers"
+        ' 
+        ' OAMAttributesViewerToolStripMenuItem
+        ' 
+        OAMAttributesViewerToolStripMenuItem.Name = "OAMAttributesViewerToolStripMenuItem"
+        OAMAttributesViewerToolStripMenuItem.Size = New Size(235, 22)
+        OAMAttributesViewerToolStripMenuItem.Text = "OAM Attributes Viewer"
+        ' 
+        ' ToolStripSeparator5
+        ' 
+        ToolStripSeparator5.Name = "ToolStripSeparator5"
+        ToolStripSeparator5.Size = New Size(232, 6)
+        ' 
+        ' VRAMOAMViewerToolStripMenuItem
+        ' 
+        VRAMOAMViewerToolStripMenuItem.Name = "VRAMOAMViewerToolStripMenuItem"
+        VRAMOAMViewerToolStripMenuItem.Size = New Size(235, 22)
+        VRAMOAMViewerToolStripMenuItem.Text = "VRAM && OAM Viewer"
+        ' 
+        ' TilemapViewerToolStripMenuItem
+        ' 
+        TilemapViewerToolStripMenuItem.Name = "TilemapViewerToolStripMenuItem"
+        TilemapViewerToolStripMenuItem.Size = New Size(235, 22)
+        TilemapViewerToolStripMenuItem.Text = "Tilemap Viewer (Backgrounds)"
+        ' 
+        ' ToolStripSeparator4
+        ' 
+        ToolStripSeparator4.Name = "ToolStripSeparator4"
+        ToolStripSeparator4.Size = New Size(232, 6)
+        ' 
+        ' APUDebuggerToolStripMenuItem
+        ' 
+        APUDebuggerToolStripMenuItem.Name = "APUDebuggerToolStripMenuItem"
+        APUDebuggerToolStripMenuItem.Size = New Size(235, 22)
+        APUDebuggerToolStripMenuItem.Text = "APU Debugger"
+        ' 
+        ' APUOscilloscopeToolStripMenuItem
+        ' 
+        APUOscilloscopeToolStripMenuItem.Name = "APUOscilloscopeToolStripMenuItem"
+        APUOscilloscopeToolStripMenuItem.Size = New Size(235, 22)
+        APUOscilloscopeToolStripMenuItem.Text = "APU Oscilloscope"
+        ' 
         ' OptionsToolStripMenuItem
         ' 
         OptionsToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {ControlsToolStripMenuItem})
         OptionsToolStripMenuItem.Name = "OptionsToolStripMenuItem"
-        OptionsToolStripMenuItem.Size = New Size(60, 20)
-        OptionsToolStripMenuItem.Text = "Opzioni"
+        OptionsToolStripMenuItem.Size = New Size(67, 20)
+        OptionsToolStripMenuItem.Text = "Options.."
         ' 
         ' ControlsToolStripMenuItem
         ' 
         ControlsToolStripMenuItem.Name = "ControlsToolStripMenuItem"
-        ControlsToolStripMenuItem.Size = New Size(151, 22)
-        ControlsToolStripMenuItem.Text = "Impostazioni..."
+        ControlsToolStripMenuItem.Size = New Size(122, 22)
+        ControlsToolStripMenuItem.Text = "Settings.."
         ' 
         ' ScreenBox
         ' 
@@ -224,6 +332,11 @@ Partial Class Form1
         StatusLabelGPU.Size = New Size(58, 17)
         StatusLabelGPU.Text = "GPU: 0ms"
         ' 
+        ' ToolStripSeparator6
+        ' 
+        ToolStripSeparator6.Name = "ToolStripSeparator6"
+        ToolStripSeparator6.Size = New Size(232, 6)
+        ' 
         ' Form1
         ' 
         AllowDrop = True
@@ -268,10 +381,27 @@ Partial Class Form1
     Friend WithEvents Size4xToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents OptionsToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents ControlsToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents DebugToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents CPUDebuggerToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents MemoryViewerToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents IORegistersToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents VRAMOAMViewerToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents OAMAttributesViewerToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents APUDebuggerToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents APUOscilloscopeToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents TilemapViewerToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents DisplayBlendingViewerToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents ScreenBox As PictureBox
     Friend WithEvents StatusStrip1 As StatusStrip
     Friend WithEvents StatusLabelStatus As ToolStripStatusLabel
     Friend WithEvents StatusLabelFPS As ToolStripStatusLabel
     Friend WithEvents StatusLabelCPU As ToolStripStatusLabel
     Friend WithEvents StatusLabelGPU As ToolStripStatusLabel
+    Friend WithEvents ToolStripSeparator2 As ToolStripSeparator
+    Friend WithEvents ToolStripSeparator1 As ToolStripSeparator
+    Friend WithEvents ToolStripSeparator3 As ToolStripSeparator
+    Friend WithEvents ToolStripSeparator5 As ToolStripSeparator
+    Friend WithEvents ToolStripSeparator4 As ToolStripSeparator
+    Friend WithEvents ToolStripSeparator7 As ToolStripSeparator
+    Friend WithEvents ToolStripSeparator6 As ToolStripSeparator
 End Class

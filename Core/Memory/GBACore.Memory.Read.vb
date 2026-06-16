@@ -1,8 +1,8 @@
 Partial Public Class GBACore
-    Public Function Read32(address As UInteger) As UInteger
+    Private Function InternalRead32(address As UInteger) As UInteger
         Dim align = CInt(address And 3)
         Dim baseAddr = address And Not 3UI
-        Dim val As UInteger = 0
+        Dim val As UInteger = OpenBus
 
         Select Case baseAddr >> 24
             Case &H0
@@ -35,7 +35,14 @@ Partial Public Class GBACore
         Return val
     End Function
 
-    Public Function Read16(address As UInteger) As UShort
+    Public Function Read32(address As UInteger) As UInteger
+        Dim val = InternalRead32(address)
+        OpenBus = val
+        If (address >> 24) = 4 Then IOOpenBus = val
+        Return val
+    End Function
+
+    Private Function InternalRead16(address As UInteger) As UShort
         address = address And Not 1UI
         Select Case address >> 24
             Case &H0
@@ -72,12 +79,12 @@ Partial Public Class GBACore
                     Case &H6 : Return CUShort(InternalVCount And &HFF) ' VCOUNT
                     Case &H8, &HA : Return rawVal And &HDFCFUS ' BG0CNT, BG1CNT
                     Case &HC, &HE : Return rawVal And &HFFCFUS ' BG2CNT, BG3CNT
-                    Case &H10 To &H3E : Return 0 ' BG OFS / MATRIX (Write Only)
-                    Case &H40 To &H46 : Return 0 ' WIN Bounds (Write Only)
+                    Case &H10 To &H3E : Return CUShort((IOOpenBus >> ((address And 2) * 8)) And &HFFFFUS) ' BG OFS / MATRIX (Write Only)
+                    Case &H40 To &H46 : Return CUShort((IOOpenBus >> ((address And 2) * 8)) And &HFFFFUS) ' WIN Bounds (Write Only)
                     Case &H48, &H4A : Return rawVal And &H3F3FUS ' WININ, WINOUT
-                    Case &H4C : Return 0 ' MOSAIC (Write Only)
+                    Case &H4C : Return CUShort((IOOpenBus >> ((address And 2) * 8)) And &HFFFFUS) ' MOSAIC (Write Only)
                     Case &H50 : Return rawVal And &H3FFFUS ' BLDCNT
-                    Case &H52, &H54 : Return 0 ' BLDALPHA, BLDY (Write Only)
+                    Case &H52, &H54 : Return CUShort((IOOpenBus >> ((address And 2) * 8)) And &HFFFFUS) ' BLDALPHA, BLDY (Write Only)
 
                     ' --- AUDIO ---
                     Case &H60 : Return rawVal And &H7FUS ' SOUND1CNT_L
@@ -102,11 +109,11 @@ Partial Public Class GBACore
                         Else
                             Return 0
                         End If
-                    Case &HA0 To &HA6 : Return 0 ' FIFO A/B (Write Only)
+                    Case &HA0 To &HA6 : Return CUShort((IOOpenBus >> ((address And 2) * 8)) And &HFFFFUS) ' FIFO A/B (Write Only)
 
                     ' --- DMA ---
                     Case &HB0, &HB4, &HB8, &HBC, &HC0, &HC4, &HC8, &HCC, &HD0, &HD4, &HD8, &HDC
-                        Return 0 ' Source/Dest/Count (Write Only)
+                        Return CUShort((IOOpenBus >> ((address And 2) * 8)) And &HFFFFUS) ' Source/Dest/Count (Write Only)
                     Case &HBA, &HC6, &HD2, &HDE
                         Return rawVal And &HFFE0US ' DMA_CNT_H (I bit 0-4 sono hardware interno)
 
@@ -129,9 +136,9 @@ Partial Public Class GBACore
                     Case &H208 : Return rawVal And &H1US ' IME
                     Case &H300 : Return rawVal And &H1US ' POSTFLG
 
-                        ' Qualsiasi altro registro non mappato o non specificato restituisce 0
+                        ' Qualsiasi altro registro non mappato o non specificato restituisce IOOpenBus
                     Case Else
-                        Return 0
+                        Return CUShort((IOOpenBus >> ((address And 2) * 8)) And &HFFFFUS)
                 End Select
 
             Case &H5 : Dim a = CInt(address And &H3FF) : Return CUShort(PaletteRAM(a) Or (CUShort(PaletteRAM(a + 1)) << 8))
@@ -151,10 +158,17 @@ Partial Public Class GBACore
                     Return CUShort(b Or (CUShort(b) << 8))
                 End If
         End Select
-        Return 0
+        Return CUShort((OpenBus >> ((address And 2) * 8)) And &HFFFFUS)
     End Function
 
-    Public Function Read8(address As UInteger) As Byte
+    Public Function Read16(address As UInteger) As UShort
+        Dim val = InternalRead16(address)
+        OpenBus = CUInt(val) Or (CUInt(val) << 16)
+        If (address >> 24) = 4 Then IOOpenBus = OpenBus
+        Return val
+    End Function
+
+    Private Function InternalRead8(address As UInteger) As Byte
         Select Case address >> 24
             Case &H0
                 If address < BIOS.Length Then
@@ -196,6 +210,13 @@ Partial Public Class GBACore
                     Return FlashData(a + (FlashBank * &H10000))
                 End If
         End Select
-        Return 0
+        Return CByte((OpenBus >> ((address And 3) * 8)) And &HFF)
+    End Function
+
+    Public Function Read8(address As UInteger) As Byte
+        Dim val = InternalRead8(address)
+        OpenBus = CUInt(val) Or (CUInt(val) << 8) Or (CUInt(val) << 16) Or (CUInt(val) << 24)
+        If (address >> 24) = 4 Then IOOpenBus = OpenBus
+        Return val
     End Function
 End Class

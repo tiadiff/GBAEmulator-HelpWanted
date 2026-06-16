@@ -6,6 +6,7 @@ Partial Public Class GBACore
         Dim IE = Read16(&H4000200)
         Dim IF_reg_check = Read16(&H4000202)
         If (IE And IF_reg_check) <> 0 Then IsHalted = False
+        Dim triggerIF As UShort = 0
 
         If Not IsHalted Then
             ExePC = R(15)
@@ -65,12 +66,11 @@ Partial Public Class GBACore
         TickTimers(cyclesTaken)
 
         Dim dispStat = Read16(&H4000004)
-        Dim IF_reg = Read16(&H4000202)
 
         Dim oldCycles = CycleCount - cyclesTaken
         While oldCycles < CycleCount
             If oldCycles < 960 AndAlso CycleCount >= 960 Then
-                If (dispStat And &H10) <> 0 Then IF_reg = IF_reg Or 2US
+                If (dispStat And &H10) <> 0 Then triggerIF = triggerIF Or 2US
                 CheckPendingDMAs(2)
             End If
 
@@ -89,7 +89,7 @@ Partial Public Class GBACore
                 If InternalVCount = 160 Then
                     frameReady = True
                     ReloadBGAffineRegisters()
-                    If (dispStat And &H8) <> 0 Then IF_reg = IF_reg Or 1US
+                    If (dispStat And &H8) <> 0 Then triggerIF = triggerIF Or 1US
                     CheckPendingDMAs(1)
                     
                     For ch = 0 To 3
@@ -104,7 +104,7 @@ Partial Public Class GBACore
                 End If
 
                 If InternalVCount = (dispStat >> 8) Then
-                    If (dispStat And &H20) <> 0 Then IF_reg = IF_reg Or 4US
+                    If (dispStat And &H20) <> 0 Then triggerIF = triggerIF Or 4US
                 End If
                 
                 If InternalVCount >= 0 AndAlso InternalVCount < 160 Then
@@ -117,7 +117,8 @@ Partial Public Class GBACore
 
         Dim isVBlank = InternalVCount >= 160 AndAlso InternalVCount < 227
         If isVBlank Then dispStat = dispStat Or 1US Else dispStat = dispStat And Not 1US
-        If CycleCount >= 960 Then dispStat = dispStat Or 2US Else dispStat = dispStat And Not 2US
+        Dim scanCycles = CycleCount Mod 1232
+        If scanCycles >= 960 Then dispStat = dispStat Or 2US Else dispStat = dispStat And Not 2US
         Dim vMatch = (InternalVCount = (dispStat >> 8))
         If vMatch Then dispStat = dispStat Or 4US Else dispStat = dispStat And Not 4US
 
@@ -126,8 +127,12 @@ Partial Public Class GBACore
         IO(4) = CByte(dispStat And &HFF)
         IO(5) = CByte(dispStat >> 8)
 
-        IO(&H202) = CByte(IF_reg And &HFF)
-        IO(&H203) = CByte(IF_reg >> 8)
+        If triggerIF <> 0 Then
+            Dim currentIF = Read16(&H4000202)
+            currentIF = currentIF Or triggerIF
+            IO(&H202) = CByte(currentIF And &HFF)
+            IO(&H203) = CByte(currentIF >> 8)
+        End If
 
         Dim IME = (Read16(&H4000208) And 1) <> 0
         IE = Read16(&H4000200)
@@ -139,7 +144,9 @@ Partial Public Class GBACore
             CPSR = (CPSR And Not &H1FUI) Or &H12UI ' IRQ mode
             CPSR = CPSR Or &H80UI ' Disable IRQ
             SPSR = oldCPSR
+            
             R(14) = R(15) + 4
+
             ThumbMode = False
             R(15) = &H18
             ExePC = &H18
