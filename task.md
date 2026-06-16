@@ -1,22 +1,6 @@
-# Task: Implementazione Settings Avanzati
+# Implement Accurate OAM Cycle Limits
 
-- [x] Modifica di `ConfigManager.vb`
-  - [x] Aggiungere `ColorCorrection As Boolean = False`
-  - [x] Aggiungere `EnforceSpriteLimit As Boolean = True`
-  - [x] Aggiungere `AudioChannelMask As Integer = &H3F`
-  - [x] Aggiungere `FastForwardMultiplier As Integer = 0`
-  - [x] Aggiungere `ForceSaveType As Integer = 0`
-  - [x] Aggiungere `KeyFastForward As Integer = Keys.Tab`
-- [x] Modifica di `SettingsForm.vb`
-  - [x] Aggiungere checkbox Color Correction e Sprite Limit
-  - [x] Aggiungere menu per i canali audio (Mixer).
-  - [x] Aggiungere menu per Force Save Type e Fast Forward Multiplier.
-  - [x] Aggiungere mappatura tasto Fast-Forward nella tab "Controlli".
-- [x] Modifica di `GBACore.APU.vb`
-  - [x] Applicare `AudioChannelMask` (Pulse 1, Pulse 2, Wave, Noise, DMA A, DMA B) nel metodo `MixAudio`.
-- [x] Modifica di `GBACore.Graphics.vb`
-  - [x] Implementare `EnforceSpriteLimit` (max 960 pixel sprites per riga).
-  - [x] Implementare `ColorCorrection` (Color Matrix GBA standard).
-- [x] Modifica di `Form1.vb`
-  - [x] Mappare il tasto Fast-Forward per rimuovere o alterare i delay dell'emulazione (`targetMs`).
-- [x] Modifica del gestore dei salvataggi in `GBACore.vb` (`LoadROM`) per usare `ForceSaveType`.
+- [x] Add `EvaluateSpriteLimits` phase at the beginning of `RenderFrame`.
+- [x] Compute OAM evaluation limits based on scanlines, separating affine from normal sprites.
+- [x] Use `SpriteVisibleMask(127, 159)` to strictly cull sprites before rendering them via Painter's Algorithm.
+- [x] Remove the incorrect pixel-based `ObjPixelsRendered` limit that erroneously dropped high-priority sprites.

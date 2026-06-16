@@ -1,39 +1,24 @@
-# Walkthrough: VB.GBA Emulator Advanced Settings
+# Walkthrough: OAM Limits e Bitmap Modes
 
-Sono stati implementati i **Settings Avanzati** che introducono un livello di controllo senza precedenti per chi vuole un'esperienza di emulazione ultra-personalizzabile. Tutte queste opzioni sono configurabili in tempo reale da `Opzioni -> Impostazioni...` e salvate automaticamente.
+## Risposta alla tua domanda sui Limiti Sprite:
+Mi hai chiesto se la limitazione del numero massimo di sprite renderizzabili (1210 o 954 cicli) si applicasse anche agli sprite *verticalmente fuori dallo schermo* (es. sprite disegnati alla scanline 200, mentre il GBA sta renderizzando la 50).
+La risposta è **assolutamente no**. L'hardware del GBA spende una manciata irrisoria di cicli nella primissima scansione della OAM per "scartare" al volo gli sprite che non intersecano orizzontalmente l'attuale scanline. I veri e propri cicli esosi che erodono il limite (`n*1` o `10+n*2`) vengono consumati unicamente dai pixel prelevati in memoria *per quella specifica scanline*.
 
-## 🎨 GBA LCD Color Correction
-Lo schermo originale del GBA (modello AGS-001, quello non retroilluminato) offriva colori molto scuri e de-saturati. Per compensare, gli sviluppatori usavano palette estremamente vivaci. Giocando oggi su un monitor PC, i giochi possono sembrare troppo "accesi".
-Abilitando **GBA LCD Color Correction** (nella tab Video), l'emulatore applica una Color Matrix personalizzata direttamente a livello di PPU. Questa funzione riduce la saturazione simulando l'autentica risposta del display LCD GBA originale!
+## Bug Architetturale Corretto
 
-> [!TIP]
-> Provala con giochi famosi per la loro palette "neon" come Castlevania: Harmony of Dissonance per notare la drastica differenza.
+Leggendo proprio il passaggio dei limiti ciclici OAM che hai postato, mi sono reso conto che l'emulatore possedeva una gestione del limite degli sprite **gravemente inesatta**:
+In passato, l'emulatore limitava a brutto muso il numero di pixel disegnati fermandosi a quota "960" all'interno della `RenderSprites`. Dato che noi usiamo il Painter's Algorithm (i layer vengono disegnati dal basso verso l'alto, quindi le Priorità più basse 3-2-1 vengono sovrascritte da quelle alte 0), gli sprite con priorità massima venivano elaborati *per ultimi* in loop! 
+Di conseguenza, se una scanline si riempiva, **venivano tagliati i layer ad alta priorità** (completamente l'inverso del GBA reale, in cui contava strettamente l'ordine di slot OAM da 0 a 127).
 
-## 👾 Hardware Sprite Limit Enforcer
-Il vero GBA soffre di sfarfallio (flickering) in situazioni molto affollate (es. tanti nemici a schermo) perché l'hardware non riesce a elaborare o renderizzare un numero illimitato di sprite (limite hardware dei pixel OBJ per scanline).
-- Se disabiliti questa opzione: Goditi un'esperienza "moderna", con sprite infiniti e assenza totale di flickering.
-- Se abiliti questa opzione: L'emulatore torna all'accuratezza hardware, saltando il rendering dei pixel in eccesso per riga.
+### 1. Nuova Scansione Preliminare (OAM Cycle Evaluation)
+Ho introdotto una fase iniziale `EvaluateSpriteLimits` a inizio frame. Prima ancora di cominciare a disegnare il background, l'emulatore ora simula il passo di valutazione OAM riga per riga:
+- Esegue un loop rigoroso da Sprite 0 a Sprite 127 (la priorità nativa in termini di esecuzione hardware).
+- Somma cicli reali (costo fisso o costo dinamico affine di `10 + n*2`).
+- Compila una matrice binaria bidimensionale `SpriteVisibleMask(127, 159)`.
 
-## 🎛️ Audio Channel Mixer (Muting Isolato)
-Nella tab **Audio** trovi ora 6 interruttori dedicati per mutare indipendentemente i canali sonori del GBA:
-- `Pulse 1` & `Pulse 2` (Onde quadre)
-- `Wave` (Campionamenti personalizzati)
-- `Noise` (Rumore bianco)
-- `DMA A` & `DMA B` (Direct Sound per audio ad alta qualità e voci)
+### 2. Disegno con Ritaglio Accurato
+Durante le 4 passate di rendering del Painter's Algorithm in `RenderSprites`, controlliamo istantaneamente la maschera: `If Not SpriteVisibleMask(i, yD) Then Continue For`.
+Ora l'emulatore troncherà sempre in modo corretto gli sprite a fine memoria OAM (127..126..), indipendentemente dalla loro priorità visiva di Z-Index! Questa correzione era indispensabile per titoli pesanti sotto l'aspetto dell'action (sparatutto, platformer affollati) che sfruttano il clipping naturale.
 
-> [!NOTE]
-> Utile per speedrunner o chiunque voglia estrarre tracce audio, capire come funziona un brano o ascoltare solo gli effetti sonori o le voci isolando la musica di sottofondo!
-
-## ⏩ Fast-Forward (Avanzamento Rapido)
-Giocare ai vecchi RPG non deve più significare combattere lentamente! 
-Nella tab **Sistema** puoi scegliere il moltiplicatore (es. 2x, 4x o 10x) per il Fast-Forward. Vai poi nella tab **Controlli** per mappare un tasto dedicato (di default `Tab`).
-Tenerlo premuto manipolerà il loop di sistema riducendo il tempo di sleep tra un frame e l'altro in tempo reale.
-
-## 💾 Force Save Type
-Talvolta ROM modificate, tradotte dai fan o giochi Homebrew ingannano il sistema di auto-rilevazione del tipo di salvataggio. Ora puoi ignorare l'autodetect ed impostare manualmente dalla tab **Sistema**:
-- SRAM
-- EEPROM
-- FLASH64 / FLASH128
-
----
-Tutto il codice è stato testato e compila alla perfezione. Puoi richiamare i nuovi setting aprendo `Opzioni -> Impostazioni...` nell'interfaccia principale. Buon divertimento!
+## Bitmap Modes
+Per quanto concerne i *Bitmap BG Modes* menzionati nel tuo testo (3, 4, 5): l'architettura implementata in precedenza in `RenderBitmapMode` era già perfettamente aderente a quanto citato. Modalità 3, frammentazione del Frame 1 in Mode 4/5 all'offset `0x0600A000` e dimensioni di 37.5 KBytes sono tutte matematicamente calcolate nei nostri mapping di memoria. Anche qui, non sono stati necessari interventi!

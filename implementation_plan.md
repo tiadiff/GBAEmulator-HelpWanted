@@ -1,38 +1,31 @@
-# Goal Description
-Inserimento di impostazioni **Avanzate** nell'emulatore. Il focus è spostato su funzionalità per sviluppatori, speedrunner e appassionati dell'accuratezza o del modding.
+# LCD VRAM Mapping & Addressing Plan
 
-## Open Questions
+Analizzando il documento del GBATEK sulla VRAM, l'emulatore attualmente alloca correttamente 96KB (`98304` byte) di VRAM, e mappa esattamente i 1024 byte di Palette RAM e OAM. 
+Tuttavia, sono emersi **due bug critici** nel modo in cui la VRAM viene indirizzata in casi limite e nelle scritture a 8-bit.
 
-> [!QUESTION]
-> **Quali di questi Advanced Settings preferisci?**
-> Dal momento che cercavi qualcosa di più avanzato, ecco una lista di idee "hardcore" per l'emulatore:
-> 
-> 1. **GBA LCD Color Correction (Video):** I giochi GBA erano programmati con colori molto accesi perché lo schermo originale (AGS-001) era poco luminoso. Sui monitor moderni risultano troppo saturi. Questa opzione applicherebbe un filtro matematico (Color Matrix) per desaturare e correggere i colori, simulando il vero schermo LCD del Game Boy Advance.
-> 2. **Hardware Sprite Limit (Emulazione/Video):** Il GBA reale disegna un massimo di 10 sprite (OBJ) per linea, causando "sfarfallio" (flickering) nei giochi concitati. Aggiungiamo un toggle: se abilitato rispetta il limite hardware (accuratezza), se disabilitato permette sprite infiniti per linea eliminando i cali grafici tipici del GBA originale.
-> 3. **Audio Channel Muting (Audio Debug):** 6 Checkbox indipendenti per mutare/isolare i singoli canali hardware (Pulse 1, Pulse 2, Wave, Noise, DMA A, DMA B). Estremamente utile per chi studia le colonne sonore o debugga.
-> 4. **Fast-Forward Speed & Key (Sistema):** Definire la velocità del Fast-Forward (es. 2x, 4x, 10x, Uncapped) e assegnare un tasto dedicato sulla tastiera.
-> 5. **Force Save Type (Memoria):** Di default l'emulatore rileva il tipo di salvataggio (SRAM, EEPROM, Flash). Questa opzione avanzata forza il tipo in caso di ROM modificate, homebrew o hack che ingannano l'auto-detect.
+## Problemi Identificati
 
-Sei d'accordo con queste proposte avanzate? C'è un ambito specifico (es. CPU, Memoria o Grafica) in cui vorresti spingerti ancora oltre?
+1. **Scritture a 8-bit in VRAM (BG Mode 3, 4, 5)**
+   - Attualmente, `GBACore.Memory.vb` ignora *qualsiasi* scrittura a 8-bit oltre l'indirizzo `0x06010000` (`a >= &H10000`), trattando tutto come "OBJ VRAM".
+   - Tuttavia, nei BG Mode 3, 4 e 5, la porzione `0x06010000 - 0x06013FFF` fa parte del **Frame Buffer** (o della porzione estesa del Frame 0 in Mode 3), e le scritture a 8-bit qui *devono* essere accettate (e specchiate a 16-bit). La vera OBJ VRAM per questi mode inizia a `0x06014000`.
+
+2. **Wraparound della OBJ VRAM fuori dai limiti (Sprite molto grandi)**
+   - Quando uno Sprite molto largo/basso sforacchia i limiti della sua memoria (offset > 32KB), l'emulatore fa: `vramAddr = vramAddr Mod 98304`.
+   - Questo errore logico fa in modo che lo Sprite "torni a zero" e legga grafica dalla **BG VRAM** (`0x06000000`), causando glitch grafici enormi.
+   - Il GBATEK afferma esplicitamente che lo spazio `0x06018000+` specchia semplicemente `0x06010000`. Quindi lo spazio degli sprite è un buffer circolare di 32KB. Va usato `And &H7FFF` sull'offset per vincolarlo alla sua memoria, e non farlo mai scivolare nella BG VRAM.
 
 ## Proposed Changes
 
----
+1. **GBACore.Memory.vb (`Write8`)**
+   - Nel `Case &H6` (VRAM), determineremo il BG Mode attuale leggendo `IO(0) And 7`.
+   - Modificheremo il check di ignoro: se `bgMode >= 3`, la soglia per l'OBJ VRAM diventerà `&H14000` (81920). Altrimenti resterà `&H10000` (65536).
 
-### [MODIFY] ConfigManager.vb
-Aggiunta alla classe `AppConfig` di:
-- `ColorCorrection As Boolean = False`
-- `EnforceSpriteLimit As Boolean = True`
-- `AudioChannelMask As Integer = &H3F` (Bitmask per i 6 canali)
-- `FastForwardMultiplier As Integer = 0` (0 = Uncapped, 2 = 200%, ecc.)
-- `ForceSaveType As Integer = 0` (0 = Auto, 1 = SRAM, 2 = EEPROM, 3 = FLASH64, 4 = FLASH128)
+2. **GBACore.Graphics.vb (`RenderSprites` e `BuildObjWindowPixels`)**
+   - Rimuoveremo la vecchia riga `If vramAddr >= 98304 Then vramAddr = vramAddr Mod 98304`.
+   - Modificheremo il calcolo per usare sempre il modulo sui 32KB:
+     `Dim vramAddr = &H10000 + (((tOff * 32) + (ty * 8) + tx) And &H7FFF)` (per 8bpp)
+     `Dim vramAddr = &H10000 + (((tOff * 32) + (ty * 4) + (tx \ 2)) And &H7FFF)` (per 4bpp)
+   - Questo garantirà che qualunque tile-index sfori il limite, continui a ciclare e "pescare" unicamente all'interno della OBJ VRAM, rispettando il mirroring hardware GBA.
 
-### [MODIFY] SettingsForm.vb
-- Aggiunta di un nuovo tab **"Avanzate"** e integrazione delle opzioni nei tab esistenti:
-  - Tab "Video": Checkbox "GBA LCD Color Correction" e "Enforce Hardware Sprite Limit".
-  - Tab "Audio": Nuova sezione "Channel Mixer" con 6 Checkbox.
-  - Tab "Sistema": Menu a tendina per il Fast-Forward Speed e per il Save Type.
-
-### [MODIFY] Core Modules (GBACore.PPU, GBACore.APU)
-- **APU:** Modificare il mix dell'audio moltiplicando il volume dei singoli canali in base al bit corrispondente in `Config.AudioChannelMask`.
-- **PPU:** Introdurre il limite di sprite nel renderizzatore scanline (`RenderOBJ`) interrotto se superati i cicli limite. Aggiungere il mapping LUT per la Color Correction nel master output se l'opzione è attiva.
+## Domande per te
+Procedo con la correzione delle dinamiche di wraparound e delle scritture 8-bit in VRAM?

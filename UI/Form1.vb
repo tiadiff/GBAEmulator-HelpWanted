@@ -111,6 +111,13 @@ Public Class Form1
                                   End Sub
         debugMenu.DropDownItems.Add(apuItem)
 
+        Dim apuOscItem As New ToolStripMenuItem("APU Oscilloscope")
+        AddHandler apuOscItem.Click, Sub(s, e)
+                                         Dim frm As New APUOscilloscopeForm(Emulator)
+                                         frm.Show()
+                                     End Sub
+        debugMenu.DropDownItems.Add(apuOscItem)
+
         Dim tilemapItem As New ToolStripMenuItem("Tilemap Viewer (Backgrounds)")
         AddHandler tilemapItem.Click, Sub(s, e)
                                           Dim frm As New TilemapViewerForm(Emulator, Me)
