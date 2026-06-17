@@ -108,6 +108,7 @@ Partial Public Class GBACore
 
     Public IsRunning As Boolean = False
     Public UseBIOS As Boolean = False
+    Public FastForwarding As Boolean = False
 
     Public Breakpoints As New HashSet(Of UInteger)
     Public DebuggerPaused As Boolean = False
@@ -175,6 +176,19 @@ Partial Public Class GBACore
     Public WINOUT_Line(159) As UShort
     Public MOSAIC_Line(159) As UShort
     Public DISPCNT_Line(159) As UShort
+    
+    Public BG0CNT_Line(159) As UShort
+    Public BG1CNT_Line(159) As UShort
+    Public BG2CNT_Line(159) As UShort
+    Public BG3CNT_Line(159) As UShort
+    Public BG0HOFS_Line(159) As UShort
+    Public BG0VOFS_Line(159) As UShort
+    Public BG1HOFS_Line(159) As UShort
+    Public BG1VOFS_Line(159) As UShort
+    Public BG2HOFS_Line(159) As UShort
+    Public BG2VOFS_Line(159) As UShort
+    Public BG3HOFS_Line(159) As UShort
+    Public BG3VOFS_Line(159) As UShort
 
     Public GameTitle As String = ""
     Public GameCode As String = ""

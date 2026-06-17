@@ -1,6 +1,6 @@
-# Implement Accurate OAM Cycle Limits
+# Task: Create SaveState Manager Form
 
-- [x] Add `EvaluateSpriteLimits` phase at the beginning of `RenderFrame`.
-- [x] Compute OAM evaluation limits based on scanlines, separating affine from normal sprites.
-- [x] Use `SpriteVisibleMask(127, 159)` to strictly cull sprites before rendering them via Painter's Algorithm.
-- [x] Remove the incorrect pixel-based `ObjPixelsRendered` limit that erroneously dropped high-priority sprites.
+- [x] Create UI/SaveStateManagerForm.vb
+- [x] Update `vb-gba.vbproj` to include the new form.
+- [x] Add a menu item in `Form1.vb` (under Debug menu) to open the new SaveStateManagerForm.
+- [x] Implement the logic in `SaveStateManagerForm` to list, delete, and manage `.sav` files.

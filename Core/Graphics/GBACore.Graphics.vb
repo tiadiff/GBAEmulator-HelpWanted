@@ -7,6 +7,7 @@ Partial Public Class GBACore
     Private ObjWinPixelsCache(38399) As Boolean
     Private SpriteVisibleMask(127, 159) As Boolean
     Private ObjPixelsRendered(159) As Integer
+    Private ObjRenderedIndex(38399) As Byte
 
     Private Function ReadIO16(offset As UInteger) As UShort
         Dim addr = CInt(offset And &H3FF)
@@ -20,6 +21,7 @@ Partial Public Class GBACore
 
     Public Sub RenderFrame()
         Array.Clear(ObjPixelsRendered, 0, 160)
+        For i = 0 To 38399 : ObjRenderedIndex(i) = 255 : Next
 
         ' Disegna il colore di sfondo (Backdrop) - Colore 0 della Palette
         Dim backdropCol = CUShort(PaletteRAM(0) Or (CUShort(PaletteRAM(1)) << 8))
@@ -38,37 +40,20 @@ Partial Public Class GBACore
             EvaluateSpriteLimits(dispCnt)
         End If
 
-        BuildWindowMask(dispCnt)
-
-        Dim mode = dispCnt And 7
+        BuildWindowMask()
 
         For prio = 3 To 0 Step -1
-            If mode = 0 Or mode = 1 Or mode = 2 Then
-                For i = 3 To 0 Step -1
-                    If (dispCnt And (1 << (8 + i))) <> 0 Then
-                        Dim bgCnt = ReadIO16(CUInt(&H8 + (i * 2)))
-                        Dim bgPrio = bgCnt And 3
-                        If bgPrio = prio Then
-                            If mode = 0 OrElse (mode = 1 AndAlso i < 2) Then
-                                RenderTileBG(i, bgCnt)
-                            ElseIf mode = 2 OrElse (mode = 1 AndAlso i = 2) Then
-                                RenderAffineBG(i, bgCnt)
-                            ' Mode 1 con i=3: BG3 non esiste in Mode 1, si ignora
-                            End If
-                        End If
-                    End If
-                Next
-            ElseIf mode >= 3 AndAlso mode <= 5 Then
-                If (dispCnt And &H400) <> 0 Then ' BG2 Enable
-                    Dim bgCnt = ReadIO16(&H0C) ' BG2CNT
-                    Dim bgPrio = bgCnt And 3
-                    If bgPrio = prio Then
-                        RenderBitmapMode(dispCnt, bgCnt, mode)
-                    End If
-                End If
-            End If
+            RenderTileBG(0, prio)
+            RenderTileBG(1, prio)
+            RenderTileBG(2, prio)
+            RenderTileBG(3, prio)
             
-            If (dispCnt And &H1000) <> 0 Then RenderSprites(prio, dispCnt)
+            RenderAffineBG(2, prio)
+            RenderAffineBG(3, prio)
+
+            RenderBitmapMode(prio)
+            
+            RenderSprites(prio)
         Next
 
         ' Green Swap (Undocumented)

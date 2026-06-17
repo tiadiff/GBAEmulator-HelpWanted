@@ -2,20 +2,40 @@ Imports System.Drawing
 Imports System.Runtime.InteropServices
 
 Partial Public Class GBACore
-    Private Sub RenderTileBG(bgIdx As Integer, bgCnt As UShort)
-        Dim mapBase = ((bgCnt >> 8) And &H1F) * 2048
-        Dim tileBase = ((bgCnt >> 2) And &H3) * 16384
-        Dim is8bpp = (bgCnt And &H80) <> 0
-        Dim hOfs = ReadIO16(CUInt(&H10 + (bgIdx * 4))) And &H1FF
-        Dim vOfs = ReadIO16(CUInt(&H12 + (bgIdx * 4))) And &H1FF
-
-        Dim bgSize = (bgCnt >> 14) And 3
-        Dim mapWidth = If(bgSize = 0 Or bgSize = 2, 32, 64)
-        Dim mapHeight = If(bgSize = 0 Or bgSize = 1, 32, 64)
-
-        Dim mosaicEnabled = (bgCnt And &H40) <> 0
-
+    Private Sub RenderTileBG(bgIdx As Integer, targetPrio As Integer)
         For scn_y = 0 To 159
+            Dim dispCnt = DISPCNT_Line(scn_y)
+            Dim mode = dispCnt And 7
+            
+            If (dispCnt And (1 << (8 + bgIdx))) = 0 Then Continue For
+            
+            If mode = 0 OrElse (mode = 1 AndAlso bgIdx < 2) Then
+                ' Valid mode for Text BG
+            Else
+                Continue For
+            End If
+
+            Dim bgCnt As UShort
+            Dim hOfs As Integer
+            Dim vOfs As Integer
+            
+            Select Case bgIdx
+                Case 0 : bgCnt = BG0CNT_Line(scn_y) : hOfs = BG0HOFS_Line(scn_y) : vOfs = BG0VOFS_Line(scn_y)
+                Case 1 : bgCnt = BG1CNT_Line(scn_y) : hOfs = BG1HOFS_Line(scn_y) : vOfs = BG1VOFS_Line(scn_y)
+                Case 2 : bgCnt = BG2CNT_Line(scn_y) : hOfs = BG2HOFS_Line(scn_y) : vOfs = BG2VOFS_Line(scn_y)
+                Case 3 : bgCnt = BG3CNT_Line(scn_y) : hOfs = BG3HOFS_Line(scn_y) : vOfs = BG3VOFS_Line(scn_y)
+            End Select
+            
+            If (bgCnt And 3) <> targetPrio Then Continue For
+
+            Dim mapBase = ((bgCnt >> 8) And &H1F) * 2048
+            Dim tileBase = ((bgCnt >> 2) And &H3) * 16384
+            Dim is8bpp = (bgCnt And &H80) <> 0
+            Dim bgSize = (bgCnt >> 14) And 3
+            Dim mapWidth = If(bgSize = 1 OrElse bgSize = 3, 64, 32)
+            Dim mapHeight = If(bgSize = 2 OrElse bgSize = 3, 64, 32)
+
+            Dim mosaicEnabled = (bgCnt And &H40) <> 0
             Dim mosH = 1 : Dim mosV = 1
             If mosaicEnabled Then
                 Dim mosReg = MOSAIC_Line(scn_y)
@@ -58,7 +78,7 @@ Partial Public Class GBACore
                     cIdx = VRAM((tileAddr + (f_py * 8) + f_px) And &HFFFF)
                 End If
 
-                If cIdx <> 0 Then ' Il Colore 0 è Trasparente!
+                If cIdx <> 0 Then
                     Dim pAddr As Integer = If(is8bpp, cIdx * 2, (palIdx * 32) + (cIdx * 2))
                     Dim col = CUShort(PaletteRAM(pAddr) Or (CUShort(PaletteRAM(pAddr + 1)) << 8))
                     FramePixels(scn_y * 240 + scn_x) = GBAtoARGB(col)
@@ -67,18 +87,31 @@ Partial Public Class GBACore
         Next
     End Sub
 
-    Private Sub RenderAffineBG(bgIdx As Integer, bgCnt As UShort)
-        Dim mapBase = ((bgCnt >> 8) And &H1F) * 2048
-        Dim tileBase = ((bgCnt >> 2) And &H3) * 16384
-        Dim wraparound = (bgCnt And &H2000) <> 0
-
-        Dim bgSize = (bgCnt >> 14) And 3
-        Dim mapSize = 16 << bgSize ' 16, 32, 64, 128 (width in tiles)
-        Dim mapPixels = mapSize * 8
-
-        Dim mosaicEnabled = (bgCnt And &H40) <> 0
-
+    Private Sub RenderAffineBG(bgIdx As Integer, targetPrio As Integer)
         For scn_y = 0 To 159
+            Dim dispCnt = DISPCNT_Line(scn_y)
+            Dim mode = dispCnt And 7
+            
+            If (dispCnt And (1 << (8 + bgIdx))) = 0 Then Continue For
+            
+            If mode = 2 OrElse (mode = 1 AndAlso bgIdx = 2) Then
+                ' Valid mode for Affine BG
+            Else
+                Continue For
+            End If
+
+            Dim bgCnt As UShort = If(bgIdx = 2, BG2CNT_Line(scn_y), BG3CNT_Line(scn_y))
+            If (bgCnt And 3) <> targetPrio Then Continue For
+
+            Dim mapBase = ((bgCnt >> 8) And &H1F) * 2048
+            Dim tileBase = ((bgCnt >> 2) And &H3) * 16384
+            Dim wraparound = (bgCnt And &H2000) <> 0
+
+            Dim bgSize = (bgCnt >> 14) And 3
+            Dim mapSize = 16 << bgSize ' 16, 32, 64, 128 (width in tiles)
+            Dim mapPixels = mapSize * 8
+
+            Dim mosaicEnabled = (bgCnt And &H40) <> 0
             Dim mosH = 1 : Dim mosV = 1
             If mosaicEnabled Then
                 Dim mosReg = MOSAIC_Line(scn_y)
@@ -133,14 +166,22 @@ Partial Public Class GBACore
         Next
     End Sub
 
-    Private Sub RenderBitmapMode(dispCnt As UShort, bgCnt As UShort, mode As Integer)
-        Dim mosaicEnabled = (bgCnt And &H40) <> 0
-
-        Dim bmpWidth = If(mode = 5, 160, 240)
-        Dim bmpHeight = If(mode = 5, 128, 160)
-        Dim baseOffset = If((mode = 4 OrElse mode = 5) AndAlso (dispCnt And &H10) <> 0, &HA000, 0)
-
+    Private Sub RenderBitmapMode(targetPrio As Integer)
         For scn_y = 0 To 159
+            Dim dispCnt = DISPCNT_Line(scn_y)
+            Dim mode = dispCnt And 7
+            
+            If mode < 3 OrElse mode > 5 Then Continue For
+            If (dispCnt And &H400) = 0 Then Continue For
+            
+            Dim bgCnt = BG2CNT_Line(scn_y)
+            If (bgCnt And 3) <> targetPrio Then Continue For
+            
+            Dim mosaicEnabled = (bgCnt And &H40) <> 0
+            Dim bmpWidth = If(mode = 5, 160, 240)
+            Dim bmpHeight = If(mode = 5, 128, 160)
+            Dim baseOffset = If((mode = 4 OrElse mode = 5) AndAlso (dispCnt And &H10) <> 0, &HA000, 0)
+
             Dim mosH = 1 : Dim mosV = 1
             If mosaicEnabled Then
                 Dim mosReg = MOSAIC_Line(scn_y)

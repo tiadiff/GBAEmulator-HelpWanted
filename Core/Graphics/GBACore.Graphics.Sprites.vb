@@ -25,7 +25,10 @@ Partial Public Class GBACore
             Dim isDouble = isAffine AndAlso (a0 And &H200) <> 0
             Dim objDisable = Not isAffine AndAlso (a0 And &H200) <> 0
             
-            If objDisable Then Continue For
+            ' Su GBA, gli sprite disabilitati (OBJ Disable) NON vengono disegnati, ma se intersecano 
+            ' verticalmente la scanline consumano comunque cicli di rendering (n*1 o 10+n*2).
+            ' È per questo motivo che GBATEK consiglia di ridimensionarli a 8x8 (per ridurre l'overload).
+            ' Quindi NON facciamo "If objDisable Then Continue For" qui, ma li contiamo.
             
             Dim shape = (a0 >> 14) And 3
             Dim size = (a1 >> 14) And 3
@@ -37,15 +40,15 @@ Partial Public Class GBACore
             Dim drawW = If(isDouble, w * 2, w)
             Dim drawH = If(isDouble, h * 2, h)
             
-            Dim objY = a0 And &HFF : If objY >= 160 Then objY -= 256
+            Dim objY = a0 And &HFF
             Dim objX = a1 And &H1FF : If objX >= 256 Then objX -= 512
-            
+
             Dim reqCycles As Integer = If(Not isAffine, w, 10 + w * 2)
-            
+
             For py = 0 To drawH - 1
-                Dim yD = objY + py
-                If yD < 0 OrElse yD >= 160 Then Continue For
-                
+                Dim yD = (objY + py) And 255
+                If yD >= 160 Then Continue For
+
                 If cyclesPerLine(yD) + reqCycles <= maxCycles Then
                     cyclesPerLine(yD) += reqCycles
                     SpriteVisibleMask(i, yD) = True
@@ -54,14 +57,12 @@ Partial Public Class GBACore
         Next
     End Sub
 
-    Private Sub RenderSprites(targetPrio As Integer, dispCnt As UShort)
+    Private Sub RenderSprites(targetPrio As Integer)
         Dim sprSizes(,,) As Integer = {
-            {{8, 8}, {16, 16}, {32, 32}, {64, 64}},   
-            {{16, 8}, {32, 8}, {32, 16}, {64, 32}},   
-            {{8, 16}, {8, 32}, {16, 32}, {32, 64}}    
+            {{8, 8}, {16, 16}, {32, 32}, {64, 64}},
+            {{16, 8}, {32, 8}, {32, 16}, {64, 32}},
+            {{8, 16}, {8, 32}, {16, 32}, {32, 64}}
         }
-        
-        Dim is1DMapping = (dispCnt And &H40) <> 0
 
         For i = 127 To 0 Step -1
             Dim addr = i * 8
@@ -80,24 +81,20 @@ Partial Public Class GBACore
             Dim sprPrio = (a2 >> 10) And 3
             If sprPrio <> targetPrio Then Continue For ' Disegna solo nella priorità corrente
 
-            Dim y = a0 And &HFF : If y >= 160 Then y -= 256 ' GBATEK: Y >= 160 = sprite parzialmente sopra lo schermo (valori negativi)
+            Dim y = a0 And &HFF
             Dim x = a1 And &H1FF : If x >= 256 Then x -= 512
-            
-            Dim tile = a2 And &H3FF
-            Dim bgMode = dispCnt And 7
-            If bgMode >= 3 AndAlso tile < 512 Then Continue For ' Tile numbers < 512 prohibited in Bitmap Modes
 
+            Dim tile = a2 And &H3FF
             Dim pal = (a2 >> 12) And &HF
             Dim is8bpp = (a0 And &H2000) <> 0
-            If is8bpp Then tile = tile And Not 1 ' In 256 color mode, lowest bit of tile is ignored
-
+            
             Dim hFlip = Not isAffine AndAlso (a1 And &H1000) <> 0
             Dim vFlip = Not isAffine AndAlso (a1 And &H2000) <> 0
             Dim objMosaic = (a0 And &H1000) <> 0
 
             Dim shape = (a0 >> 14) And 3
             Dim size = (a1 >> 14) And 3
-            If shape = 3 Then Continue For 
+            If shape = 3 Then Continue For
 
             Dim w = sprSizes(shape, size, 0)
             Dim h = sprSizes(shape, size, 1)
@@ -116,11 +113,19 @@ Partial Public Class GBACore
             End If
 
             For py = 0 To drawH - 1
-                Dim yD = y + py
-                If yD < 0 Or yD >= 160 Then Continue For
+                Dim yD = (y + py) And 255
+                If yD >= 160 Then Continue For
                 
-                If ConfigManager.CurrentConfig.EnforceSpriteLimit AndAlso Not SpriteVisibleMask(i, yD) Then Continue For
+                Dim dispCntLine = DISPCNT_Line(yD)
+                If (dispCntLine And &H1000) = 0 Then Continue For
                 
+                Dim bgMode = dispCntLine And 7
+                If bgMode >= 3 AndAlso tile < 512 Then Continue For
+                
+                Dim is1DMapping = (dispCntLine And &H40) <> 0
+                Dim currentTile = tile
+                If is8bpp AndAlso Not is1DMapping Then currentTile = currentTile And Not 1
+
                 Dim objMosH = 1 : Dim objMosV = 1
                 If objMosaic Then
                     Dim mosReg = MOSAIC_Line(yD)
@@ -129,8 +134,8 @@ Partial Public Class GBACore
                 End If
 
                 Dim m_yD = If(objMosaic, yD - (yD Mod objMosV), yD)
-                Dim m_py = m_yD - y
-                If m_py < 0 OrElse m_py >= drawH Then Continue For
+                Dim m_py = (m_yD - y) And 255
+                If m_py >= drawH Then Continue For
 
                 For px = 0 To drawW - 1
                     Dim xD = x + px
@@ -166,9 +171,9 @@ Partial Public Class GBACore
                     If is1DMapping Then
                         Dim tileX = srcX \ 8
                         Dim tileY = srcY \ 8
-                        tOff = tile + (tileY * (w \ 8) + tileX) * If(is8bpp, 2, 1)
+                        tOff = currentTile + (tileY * (w \ 8) + tileX) * If(is8bpp, 2, 1)
                     Else
-                        tOff = tile + (srcY \ 8) * 32 + (srcX \ 8) * If(is8bpp, 2, 1)
+                        tOff = currentTile + (srcY \ 8) * 32 + (srcX \ 8) * If(is8bpp, 2, 1)
                     End If
 
                     Dim c As Integer
@@ -182,9 +187,13 @@ Partial Public Class GBACore
                     End If
 
                     If c <> 0 Then ' Il Colore 0 è trasparente negli Sprite
+                        Dim pixelIdx = yD * 240 + xD
+                        If i > ObjRenderedIndex(pixelIdx) Then Continue For
+                        ObjRenderedIndex(pixelIdx) = CByte(i)
+
                         Dim pAddr As Integer = If(is8bpp, 512 + (c * 2), 512 + (pal * 32) + (c * 2))
                         Dim col = CUShort(PaletteRAM(pAddr) Or (CUShort(PaletteRAM(pAddr + 1)) << 8))
-                        FramePixels(yD * 240 + xD) = GBAtoARGB(col)
+                        FramePixels(pixelIdx) = GBAtoARGB(col)
                     End If
                 Next
             Next

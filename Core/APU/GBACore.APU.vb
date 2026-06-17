@@ -212,10 +212,13 @@ Partial Public Class GBACore
                 fsStep = (fsStep + 1) And 7
             End While
 
-            ' 3. Ottieni lo stato istantaneo dell'audio
+            ' 3. Ottieni lo stato istantaneo dell'audio (Salta il mixing pesante se FastForwarding)
             Dim curL As Single = 0
             Dim curR As Single = 0
-            MixAudio(curL, curR)
+            
+            If Not Core.FastForwarding Then
+                MixAudio(curL, curR)
+            End If
 
             ' 4. Accumula i campioni (Boxcar Integrator) per evitare l'Aliasing
             leftAccum += curL * cycles

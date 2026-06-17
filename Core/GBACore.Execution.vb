@@ -70,6 +70,9 @@ Partial Public Class GBACore
         Dim oldCycles = CycleCount - cyclesTaken
         While oldCycles < CycleCount
             If oldCycles < 960 AndAlso CycleCount >= 960 Then
+                If InternalVCount >= 0 AndAlso InternalVCount < 160 Then
+                    IncrementBGAffineRegisters()
+                End If
                 If (dispStat And &H10) <> 0 Then triggerIF = triggerIF Or 2US
                 CheckPendingDMAs(2)
             End If
@@ -81,10 +84,6 @@ Partial Public Class GBACore
                 If InternalVCount > 227 Then InternalVCount = 0
                 IO(6) = CByte(InternalVCount And &HFF)
                 IO(7) = CByte(InternalVCount >> 8)
-
-                If InternalVCount > 0 AndAlso InternalVCount <= 160 Then
-                    IncrementBGAffineRegisters()
-                End If
                 
                 If InternalVCount = 160 Then
                     frameReady = True

@@ -36,7 +36,9 @@ Partial Class Form1
         ResetToolStripMenuItem = New ToolStripMenuItem()
         ToolStripSeparator3 = New ToolStripSeparator()
         SaveStateToolStripMenuItem = New ToolStripMenuItem()
+        ToolStripSeparator8 = New ToolStripSeparator()
         LoadStateToolStripMenuItem = New ToolStripMenuItem()
+        SaveStateManagerToolStripMenuItem = New ToolStripMenuItem()
         ViewToolStripMenuItem = New ToolStripMenuItem()
         Size1xToolStripMenuItem = New ToolStripMenuItem()
         Size2xToolStripMenuItem = New ToolStripMenuItem()
@@ -47,6 +49,7 @@ Partial Class Form1
         CPUDebuggerToolStripMenuItem = New ToolStripMenuItem()
         ToolStripSeparator7 = New ToolStripSeparator()
         MemoryViewerToolStripMenuItem = New ToolStripMenuItem()
+        ToolStripSeparator6 = New ToolStripSeparator()
         IORegistersToolStripMenuItem = New ToolStripMenuItem()
         OAMAttributesViewerToolStripMenuItem = New ToolStripMenuItem()
         ToolStripSeparator5 = New ToolStripSeparator()
@@ -63,7 +66,6 @@ Partial Class Form1
         StatusLabelFPS = New ToolStripStatusLabel()
         StatusLabelCPU = New ToolStripStatusLabel()
         StatusLabelGPU = New ToolStripStatusLabel()
-        ToolStripSeparator6 = New ToolStripSeparator()
         MenuStrip1.SuspendLayout()
         CType(ScreenBox, ComponentModel.ISupportInitialize).BeginInit()
         StatusStrip1.SuspendLayout()
@@ -130,7 +132,7 @@ Partial Class Form1
         ' 
         ' EmulationToolStripMenuItem
         ' 
-        EmulationToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {PauseResumeToolStripMenuItem, ResetToolStripMenuItem, ToolStripSeparator3, SaveStateToolStripMenuItem, LoadStateToolStripMenuItem})
+        EmulationToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {PauseResumeToolStripMenuItem, ResetToolStripMenuItem, ToolStripSeparator3, SaveStateToolStripMenuItem, ToolStripSeparator8, LoadStateToolStripMenuItem, SaveStateManagerToolStripMenuItem})
         EmulationToolStripMenuItem.Name = "EmulationToolStripMenuItem"
         EmulationToolStripMenuItem.Size = New Size(73, 20)
         EmulationToolStripMenuItem.Text = "Emulation"
@@ -138,31 +140,42 @@ Partial Class Form1
         ' PauseResumeToolStripMenuItem
         ' 
         PauseResumeToolStripMenuItem.Name = "PauseResumeToolStripMenuItem"
-        PauseResumeToolStripMenuItem.Size = New Size(158, 22)
+        PauseResumeToolStripMenuItem.Size = New Size(180, 22)
         PauseResumeToolStripMenuItem.Text = "Pause / Resume"
         ' 
         ' ResetToolStripMenuItem
         ' 
         ResetToolStripMenuItem.Name = "ResetToolStripMenuItem"
-        ResetToolStripMenuItem.Size = New Size(158, 22)
+        ResetToolStripMenuItem.Size = New Size(180, 22)
         ResetToolStripMenuItem.Text = "Reset"
         ' 
         ' ToolStripSeparator3
         ' 
         ToolStripSeparator3.Name = "ToolStripSeparator3"
-        ToolStripSeparator3.Size = New Size(155, 6)
+        ToolStripSeparator3.Size = New Size(177, 6)
         ' 
         ' SaveStateToolStripMenuItem
         ' 
         SaveStateToolStripMenuItem.Name = "SaveStateToolStripMenuItem"
-        SaveStateToolStripMenuItem.Size = New Size(158, 22)
+        SaveStateToolStripMenuItem.Size = New Size(180, 22)
         SaveStateToolStripMenuItem.Text = "Save State"
+        ' 
+        ' ToolStripSeparator8
+        ' 
+        ToolStripSeparator8.Name = "ToolStripSeparator8"
+        ToolStripSeparator8.Size = New Size(177, 6)
         ' 
         ' LoadStateToolStripMenuItem
         ' 
         LoadStateToolStripMenuItem.Name = "LoadStateToolStripMenuItem"
-        LoadStateToolStripMenuItem.Size = New Size(158, 22)
+        LoadStateToolStripMenuItem.Size = New Size(180, 22)
         LoadStateToolStripMenuItem.Text = "Load State"
+        ' 
+        ' SaveStateManagerToolStripMenuItem
+        ' 
+        SaveStateManagerToolStripMenuItem.Name = "SaveStateManagerToolStripMenuItem"
+        SaveStateManagerToolStripMenuItem.Size = New Size(180, 22)
+        SaveStateManagerToolStripMenuItem.Text = "Save State Manager"
         ' 
         ' ViewToolStripMenuItem
         ' 
@@ -174,25 +187,25 @@ Partial Class Form1
         ' Size1xToolStripMenuItem
         ' 
         Size1xToolStripMenuItem.Name = "Size1xToolStripMenuItem"
-        Size1xToolStripMenuItem.Size = New Size(155, 22)
+        Size1xToolStripMenuItem.Size = New Size(180, 22)
         Size1xToolStripMenuItem.Text = "Window Size 1x"
         ' 
         ' Size2xToolStripMenuItem
         ' 
         Size2xToolStripMenuItem.Name = "Size2xToolStripMenuItem"
-        Size2xToolStripMenuItem.Size = New Size(155, 22)
+        Size2xToolStripMenuItem.Size = New Size(180, 22)
         Size2xToolStripMenuItem.Text = "Window Size 2x"
         ' 
         ' Size3xToolStripMenuItem
         ' 
         Size3xToolStripMenuItem.Name = "Size3xToolStripMenuItem"
-        Size3xToolStripMenuItem.Size = New Size(155, 22)
+        Size3xToolStripMenuItem.Size = New Size(180, 22)
         Size3xToolStripMenuItem.Text = "Window Size 3x"
         ' 
         ' Size4xToolStripMenuItem
         ' 
         Size4xToolStripMenuItem.Name = "Size4xToolStripMenuItem"
-        Size4xToolStripMenuItem.Size = New Size(155, 22)
+        Size4xToolStripMenuItem.Size = New Size(180, 22)
         Size4xToolStripMenuItem.Text = "Window Size 4x"
         ' 
         ' DebugToolStripMenuItem
@@ -224,6 +237,11 @@ Partial Class Form1
         MemoryViewerToolStripMenuItem.Name = "MemoryViewerToolStripMenuItem"
         MemoryViewerToolStripMenuItem.Size = New Size(235, 22)
         MemoryViewerToolStripMenuItem.Text = "Memory Viewer"
+        ' 
+        ' ToolStripSeparator6
+        ' 
+        ToolStripSeparator6.Name = "ToolStripSeparator6"
+        ToolStripSeparator6.Size = New Size(232, 6)
         ' 
         ' IORegistersToolStripMenuItem
         ' 
@@ -332,11 +350,6 @@ Partial Class Form1
         StatusLabelGPU.Size = New Size(58, 17)
         StatusLabelGPU.Text = "GPU: 0ms"
         ' 
-        ' ToolStripSeparator6
-        ' 
-        ToolStripSeparator6.Name = "ToolStripSeparator6"
-        ToolStripSeparator6.Size = New Size(232, 6)
-        ' 
         ' Form1
         ' 
         AllowDrop = True
@@ -404,4 +417,6 @@ Partial Class Form1
     Friend WithEvents ToolStripSeparator4 As ToolStripSeparator
     Friend WithEvents ToolStripSeparator7 As ToolStripSeparator
     Friend WithEvents ToolStripSeparator6 As ToolStripSeparator
+    Friend WithEvents ToolStripSeparator8 As ToolStripSeparator
+    Friend WithEvents SaveStateManagerToolStripMenuItem As ToolStripMenuItem
 End Class

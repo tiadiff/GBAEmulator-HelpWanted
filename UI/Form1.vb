@@ -14,7 +14,7 @@ Public Class Form1
     Private WithEvents SaveTimer As New System.Windows.Forms.Timer()
 
     Private KeyboardState As UShort = 1023
-    Private FastForwardPressed As Boolean = False
+    Private _fastForwardPressed As Integer = 0
 
     <StructLayout(LayoutKind.Sequential)>
     Private Structure XINPUT_GAMEPAD
@@ -143,7 +143,7 @@ Public Class Form1
         Next
     End Sub
 
-    Private Sub UpdateLoadStatesMenu()
+    Public Sub UpdateLoadStatesMenu()
         LoadStateToolStripMenuItem.DropDownItems.Clear()
         If CurrentRomPath = "" Then Return
 
@@ -284,6 +284,9 @@ Public Class Form1
                     End If
                 End If
                 Emulator.KeyState = KeyboardState And gpState
+                
+                Dim isFF As Boolean = Threading.Volatile.Read(_fastForwardPressed) = 1 AndAlso IsAppActive
+                Emulator.FastForwarding = isFF
 
                 Dim cycles As Integer = 0
                 Dim frameReady As Boolean = False
@@ -302,8 +305,18 @@ Public Class Form1
                 totalCpuMs += cpuTime.ElapsedMilliseconds
 
                 If frameReady Then
-                    Dim skipFrame As Boolean = FastForwardPressed AndAlso (frames Mod 4 <> 0)
-                    
+                    Dim skipFrame As Boolean = False
+                    If isFF Then
+                        Dim mult = ConfigManager.CurrentConfig.FastForwardMultiplier
+                        If mult = 0 OrElse mult >= 10 Then
+                            skipFrame = (frames Mod 10 <> 0) ' Salta 9 frame su 10
+                        ElseIf mult > 1 Then
+                            skipFrame = (frames Mod mult <> 0)
+                        Else
+                            skipFrame = (frames Mod 4 <> 0)
+                        End If
+                    End If
+
                     If Not skipFrame Then
                         gpuTime.Restart()
                         Emulator.RenderFrame()
@@ -335,14 +348,9 @@ Public Class Form1
                 End If
 
                 Dim targetMs As Double = 16.74 ' Default ~59.7 FPS
+                isFF = Threading.Volatile.Read(_fastForwardPressed) = 1 AndAlso IsAppActive
 
-                If IsAppActive Then
-                    FastForwardPressed = (GetAsyncKeyState(ConfigManager.CurrentConfig.KeyFastForward) And &H8000) <> 0
-                Else
-                    FastForwardPressed = False
-                End If
-
-                If FastForwardPressed AndAlso ConfigManager.CurrentConfig.KeyFastForward <> 0 Then
+                If isFF AndAlso ConfigManager.CurrentConfig.KeyFastForward <> 0 Then
                     Dim mult = ConfigManager.CurrentConfig.FastForwardMultiplier
                     If mult = 0 Then
                         targetMs = 0 ' Uncapped
@@ -422,7 +430,7 @@ Public Class Form1
         If key = ConfigManager.CurrentConfig.KeyDown Then KeyboardState = KeyboardState And Not 128US
         If key = ConfigManager.CurrentConfig.KeyR Then KeyboardState = KeyboardState And Not 256US
         If key = ConfigManager.CurrentConfig.KeyL Then KeyboardState = KeyboardState And Not 512US
-        If key = ConfigManager.CurrentConfig.KeyFastForward Then FastForwardPressed = True
+        If key = ConfigManager.CurrentConfig.KeyFastForward Then Threading.Interlocked.Exchange(_fastForwardPressed, 1)
     End Sub
 
     Private Sub Form1_KeyUp(sender As Object, e As KeyEventArgs) Handles MyBase.KeyUp
@@ -437,7 +445,7 @@ Public Class Form1
         If key = ConfigManager.CurrentConfig.KeyDown Then KeyboardState = KeyboardState Or 128US
         If key = ConfigManager.CurrentConfig.KeyR Then KeyboardState = KeyboardState Or 256US
         If key = ConfigManager.CurrentConfig.KeyL Then KeyboardState = KeyboardState Or 512US
-        If key = ConfigManager.CurrentConfig.KeyFastForward Then FastForwardPressed = False
+        If key = ConfigManager.CurrentConfig.KeyFastForward Then Threading.Interlocked.Exchange(_fastForwardPressed, 0)
     End Sub
 
     Private Sub PauseResumeToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles PauseResumeToolStripMenuItem.Click
@@ -539,6 +547,7 @@ Public Class Form1
 
     Private Sub Form1_Deactivate(sender As Object, e As EventArgs) Handles Me.Deactivate
         IsAppActive = False
+        Threading.Interlocked.Exchange(_fastForwardPressed, 0)
         WasRunningBeforeDeactivate = EmulationRunning
         If EmulationRunning AndAlso ConfigManager.CurrentConfig.PauseOnDefocus Then
             PauseEmulation()
@@ -676,6 +685,11 @@ Public Class Form1
 
     Private Sub DisplayBlendingViewerToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles DisplayBlendingViewerToolStripMenuItem.Click
         Dim frm As New DisplayControlViewerForm(Emulator, Me)
+        frm.Show()
+    End Sub
+
+    Private Sub SaveStateManagerToolStripMenuItem_Click_1(sender As Object, e As EventArgs) Handles SaveStateManagerToolStripMenuItem.Click
+        Dim frm As New SaveStateManagerForm(CurrentRomPath, Me)
         frm.Show()
     End Sub
 End Class

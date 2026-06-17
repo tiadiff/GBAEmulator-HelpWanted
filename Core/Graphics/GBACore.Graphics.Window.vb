@@ -2,21 +2,31 @@ Imports System.Drawing
 Imports System.Runtime.InteropServices
 
 Partial Public Class GBACore
-    Private Sub BuildWindowMask(dispCnt As UShort)
-        Dim win0Enabled = (dispCnt And &H2000) <> 0
-        Dim win1Enabled = (dispCnt And &H4000) <> 0
-        Dim objWinEnabled = (dispCnt And &H8000) <> 0 AndAlso (dispCnt And &H1000) <> 0
+    Private Sub BuildWindowMask()
+        Dim anyObjWin = False
+        For y = 0 To 159
+            Dim dCnt = DISPCNT_Line(y)
+            If (dCnt And &H8000) <> 0 AndAlso (dCnt And &H1000) <> 0 Then
+                anyObjWin = True
+                Exit For
+            End If
+        Next
 
-        If Not win0Enabled AndAlso Not win1Enabled AndAlso Not objWinEnabled Then
-            For i = 0 To 38399 : WinMaskCache(i) = &H3F : Next
-            Return
-        End If
-
-        If objWinEnabled Then
-            BuildObjWindowPixels(dispCnt)
+        If anyObjWin Then
+            BuildObjWindowPixels()
         End If
 
         For y = 0 To 159
+            Dim dispCnt = DISPCNT_Line(y)
+            Dim win0Enabled = (dispCnt And &H2000) <> 0
+            Dim win1Enabled = (dispCnt And &H4000) <> 0
+            Dim objWinEnabled = (dispCnt And &H8000) <> 0 AndAlso (dispCnt And &H1000) <> 0
+
+            If Not win0Enabled AndAlso Not win1Enabled AndAlso Not objWinEnabled Then
+                For x = 0 To 239 : WinMaskCache(y * 240 + x) = &H3F : Next
+                Continue For
+            End If
+
             Dim winIn = WININ_Line(y)
             Dim winOut = WINOUT_Line(y)
 
@@ -53,7 +63,7 @@ Partial Public Class GBACore
         Next
     End Sub
 
-    Private Sub BuildObjWindowPixels(dispCnt As UShort)
+    Private Sub BuildObjWindowPixels()
         Array.Clear(ObjWinPixelsCache, 0, 38400)
         
         Dim sprSizes(,,) As Integer = {
@@ -61,8 +71,6 @@ Partial Public Class GBACore
             {{16, 8}, {32, 8}, {32, 16}, {64, 32}},   
             {{8, 16}, {8, 32}, {16, 32}, {32, 64}}    
         }
-        Dim is1DMapping = (dispCnt And &H40) <> 0
-
         For i = 127 To 0 Step -1
             Dim addr = i * 8
             Dim a0 = CUShort(OAM(addr) Or (CUShort(OAM(addr + 1)) << 8))
@@ -81,9 +89,6 @@ Partial Public Class GBACore
             Dim x = a1 And &H1FF : If x >= 256 Then x -= 512
             
             Dim tile = a2 And &H3FF
-            Dim bgMode = dispCnt And 7
-            If bgMode >= 3 AndAlso tile < 512 Then Continue For
-
             Dim is8bpp = (a0 And &H2000) <> 0
             If is8bpp Then tile = tile And Not 1
 
@@ -112,10 +117,16 @@ Partial Public Class GBACore
             End If
 
             For py = 0 To drawH - 1
-                Dim yD = y + py
-                If yD < 0 Or yD >= 160 Then Continue For
+                Dim yD = (y + py) And 255
+                If yD >= 160 Then Continue For
+
+                Dim dispCntLine = DISPCNT_Line(yD)
+                Dim bgMode = dispCntLine And 7
+                If bgMode >= 3 AndAlso tile < 512 Then Continue For
                 
-                If ConfigManager.CurrentConfig.EnforceSpriteLimit AndAlso Not SpriteVisibleMask(i, yD) Then Continue For
+                Dim is1DMapping = (dispCntLine And &H40) <> 0
+                Dim currentTile = tile
+                If is8bpp AndAlso Not is1DMapping Then currentTile = currentTile And Not 1
                 
                 Dim objMosH = 1 : Dim objMosV = 1
                 If objMosaic Then
@@ -125,8 +136,8 @@ Partial Public Class GBACore
                 End If
 
                 Dim m_yD = If(objMosaic, yD - (yD Mod objMosV), yD)
-                Dim m_py = m_yD - y
-                If m_py < 0 OrElse m_py >= drawH Then Continue For
+                Dim m_py = (m_yD - y) And 255
+                If m_py >= drawH Then Continue For
 
                 For px = 0 To drawW - 1
                     Dim xD = x + px
@@ -160,9 +171,9 @@ Partial Public Class GBACore
                     If is1DMapping Then
                         Dim tileX = srcX \ 8
                         Dim tileY = srcY \ 8
-                        tOff = tile + (tileY * (w \ 8) + tileX) * If(is8bpp, 2, 1)
+                        tOff = currentTile + (tileY * (w \ 8) + tileX) * If(is8bpp, 2, 1)
                     Else
-                        tOff = tile + (srcY \ 8) * 32 + (srcX \ 8) * If(is8bpp, 2, 1)
+                        tOff = currentTile + (srcY \ 8) * 32 + (srcX \ 8) * If(is8bpp, 2, 1)
                     End If
 
                     Dim c As Integer

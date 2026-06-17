@@ -46,5 +46,18 @@ Partial Public Class GBACore
         WINOUT_Line(y) = CUShort(IO(&H4A) Or (CUShort(IO(&H4B)) << 8))
         MOSAIC_Line(y) = CUShort(IO(&H4C) Or (CUShort(IO(&H4D)) << 8))
         DISPCNT_Line(y) = CUShort(IO(&H0) Or (CUShort(IO(&H1)) << 8))
+        
+        BG0CNT_Line(y) = CUShort(IO(&H8) Or (CUShort(IO(&H9)) << 8))
+        BG1CNT_Line(y) = CUShort(IO(&HA) Or (CUShort(IO(&HB)) << 8))
+        BG2CNT_Line(y) = CUShort(IO(&HC) Or (CUShort(IO(&HD)) << 8))
+        BG3CNT_Line(y) = CUShort(IO(&HE) Or (CUShort(IO(&HF)) << 8))
+        BG0HOFS_Line(y) = CUShort(IO(&H10) Or (CUShort(IO(&H11)) << 8)) And 511US
+        BG0VOFS_Line(y) = CUShort(IO(&H12) Or (CUShort(IO(&H13)) << 8)) And 511US
+        BG1HOFS_Line(y) = CUShort(IO(&H14) Or (CUShort(IO(&H15)) << 8)) And 511US
+        BG1VOFS_Line(y) = CUShort(IO(&H16) Or (CUShort(IO(&H17)) << 8)) And 511US
+        BG2HOFS_Line(y) = CUShort(IO(&H18) Or (CUShort(IO(&H19)) << 8)) And 511US
+        BG2VOFS_Line(y) = CUShort(IO(&H1A) Or (CUShort(IO(&H1B)) << 8)) And 511US
+        BG3HOFS_Line(y) = CUShort(IO(&H1C) Or (CUShort(IO(&H1D)) << 8)) And 511US
+        BG3VOFS_Line(y) = CUShort(IO(&H1E) Or (CUShort(IO(&H1F)) << 8)) And 511US
     End Sub
 End Class
